@@ -2,344 +2,461 @@
 
 > 学习目标：对于开发来说会使用 K8S 部署项目即可，对于运维，这篇文章并不适合
 
-## 基础概念
+## 介绍
 
-### 简介
 
-> 项目部署不同阶段的演变
+
+### 项目部署不同阶段的演变
 
 ![image-20220105193750657](README.assets/image-20220105193750657.png)
 
-1. 多个应用一起部署在一个服务器上，由于没有做隔离，可能就会导致一个崩其他几个也崩
-2. 虚拟化部署：在一个物理机上，通过虚拟化技术开多个虚拟机，不同应用部署在不同虚拟机上，可惜的是 **虚拟机也太笨重了ba**
-3. 容器化：在物理机上安装容器化运行环境(也就是 **Docker**)，之后将应用以容器化的方式运行就好了
+1. 传统部署：多个应用一起部署在一个服务器上，由于没有做隔离，可能就会导致一个崩其他几个也崩
+2. 虚拟化部署
+   - 在一个物理机上，通过虚拟化技术开多个虚拟机，不同应用部署在不同虚拟机上
+   - 但每个虚拟机之间都是一个**操作系统**，浪费了部分资源
 
-容器化存在的问题：微服务 + 容器化部署，一旦微服务模块多起来，而且使用分布式部署在不同服务上，同时一个微服务模块启动多个组成集群，这样如果只是 `docker run` 效率太低
+3. 容器化：
+   - 与虚拟化类似，但是**共享了操作系统**
+   - 可以保证每个容器拥有自己的文件系统，CPU，内存，进程空间等
+   - 运行应用程序需要的资源被容器包装，并和底层基础结构解耦
+   - ?容器化应用程序可以跨云服务商，跨 Linux 系统发行版进行部署
 
-为了解决上述问题 -> **容器编排系统：**  Docker Swarm / Kubernetes  前者适合在服务器不多(例如就五六台)的情况下使用，而后者就适合服务器超过10台以上的环境中使用
+容器化存在的问题：
+
+- 一个容器故障停机后，如何自动让另外一个容器启动实现替补停机的容器
+- 当并发访问量大的时候，怎么样做到横向扩展容器数量
+
+为了解决上述问题 -> **容器编排系统：** 
+
+- Swarm: Docker 官方的编排工具
+- Mesos: Apache 提供的，需要和 Marathon 使用
+- K8S: Google 开源
+
+Swarm / Kubernetes  前者适合在服务器不多(例如就五六台)的情况下使用，而后者就适合服务器超过10台以上的环境中使用
 
 - 编：将多个相同微服务容器集中管理
 - 排：可以动态的扩缩容(例如使用一个命令就可以多启动一个相同的微服务模块容器)
 
-### 特性
+### 简介
 
-- 服务发现和负载均衡(类似于 SpringCloud OpenFeign)
+![image-20220517232943381](README.assets/image-20220517232943381.png)
 
-- 存储编排
+- Kubernets 是本质是**一组服务器集群**，可以在集群的每个节点上运行时特定的程序，来对节点中的容器进行管理
+- 目的就是实现**资源管理的自动化**
+- 主要功能
+  1. 自动修复：一旦某一个程序崩溃，能够迅速的启动新的容器
+  2. 弹性伸缩：可以根据需求，自动对集群中正在运行的容器数量进行调整
+  3. 服务发现：服务可以通过自动发现的形式找到它需要的依赖
+  4. 负载均衡：如果一个服务启动了多个容器，能够自动实现请求的负载均衡
+  5. 版本回退：如果新发布的程序版本有问题，可以立即回退到原来的版本
+  6. 存储编排：根据容器自身的需求自动创建存储卷
 
-  Kubernetes 允许你自动挂载/卸载你选择的存储系统(本地存储，公共云提供商)；例如：启动一个容器会消耗对于的硬盘空间，当关闭这个容器时并不会自动删除相关存储数据，而 Kubernetes 可以自动的管理存储
-
-- 自动部署和回滚功能
-
-  可以自动化 Kubernetes 来为你的部署创建新容器 / 删除现有的容器并将它们的资源用于新容器 / 一键回滚容器的版本 等等
-
-- 自动完成装箱计算
-
-  Kubernetes 允许你指定每个容器所需要的 CPU 和 RAM(内存)。当容器指定了资源请求时，Kubernetes 可以做出更好的决策来管理容器的资源
-
-- 自我修复(很恐怖，如果一个服务器挂了，可以自动的将上面的容器在别的服务器上启动)
-
-- 密钥与配置管理(类似于 SpringCloud 配置中心)
+![image-20220517234228913](README.assets/image-20220517234228913.png)
 
 总结：Kubernetes 提供了一个**可弹性运行**的分布式系统框架，Kubernetes 会满足你扩展的要求 / 故障转移 / 部署模式 等。例如 Kuberntes 可以轻松管理系统的 Canary(金丝雀，也成为灰度) 部署
 
-### 架构
+### 组件
 
-> 工作方式
+> 介绍
 
-Kubernes Clutser = N 个 Master Node + N 个 Worker Node
+- 一个 Kubernetes 集群主要是由 **控制节点(master)** & **工作节点(worker)** 构成，每个节点上都会安装不同组件
 
-Master Node：管理节点，负责对 Worker Node 发号施令，通常开启奇数个 Master Node，然后选中一个作为 ”老大“，由老大统一控制，当老大挂了，就会重新从里面选取
 
-Worker Node：工作节点，负责工作，只听 ”老大“ 的话
+- **master：集群的控制平面，负责集群的决策**
 
-> 组件架构 
+  - ApiServer：资源操作的唯一入口，接受用户输入的命令，提供认证，授权，API注册和发现等机制
 
-![image-20220105215053061](README.assets/image-20220105215053061.png)
+  - Scheduler: 负责集群资源调度，按照预定的调度策略将 **Pod** 调度到相应的 node 节点上
 
-- Node：就是一个 Kubernetes 节点，在上图中 **Control Plane** 是 Master Node，而 Node 是 Worker Node
-- Control Plane：控制中心
-- Controller manager: 上层的管理者，负责发号施令
-- Etcd：数据库，负责存储整个 Kubernertes 集群运行过程中的核心数据
-- Api Server：暴露接口，提供不同角色的服务
-- Scheduler：调度者，负责给 Node 节点分配任务
-- Kubelet: 一个 Node 节点的管理者
-- Kube-Proxy：负责记录所有 Kubernetes Node 节点运行的任务情况，一般一个 Node 节点会配置一个，但它们会组成一个集群，保证数据同步
-- Cloud Controller Manager & Cloud Provider API：外部的管理者和外部提供的服务接口
+  - ControllerManager: 负责维护集群的状态，比如：程序部署安排，故障检测，自动扩展和滚动更新等
 
-注意：
+  - Etcd：负责存储集群中各种资源对象的信息
 
-- 如上图中的箭头所示，大部分的角色(组件)之间并不会直接交互，而是通过 **Api Server** 暴露的接口调用相关服务
-- 集群中的网络访问都是通过 **Kube-Proxy** 控制的
-- 所有的任务都是基于 **容器化** 运行的，所以每个节点都需要一个 **容器运行时环境** 也就是 Docker
-- 是否开始执行哪个项目其实是由我们通过 **Kubectl** 命令决定
+- worker：集群的数据平面，负责为容器提供运行环境
 
-### 集群部署
+  - Kubelet:  负责维护容器的生命周期，即通过 Docker，来创建，更新，销毁容器
+  - KubeProxy：负责提供集群内部的服务发现和负载均衡
+  - Docker：容器运行时环境
 
-![image-20220106132153886](README.assets/image-20220106132153886.png)
+![k8s组件.jpg](README.assets/1608888638188-86fad61e-547c-43d9-8424-1d17a0c6d5a2.jpeg)
 
-> 开通三台云服务器
 
-![image-20220106142324262](README.assets/image-20220106142324262.png)
 
-> 安装 Docker 容器运行时环境
+> 举个栗子：K8S 部署一个 Nginx
 
-注意，这里的学习 k8s 需要控制了 Docker 的版本，所以安装时需要煮一下
+1. 首先需要明确，一旦 Kubernetes 环境启动之后，master 和 node 都会将自身的信息存储到 **etcd数据库** 中。
+2. 一个 Nginx 服务的安装请求首先会被发送到 **master 节点上的 API Server** 组件。
+3. API Server 组件会调用 **Scheduler** 组件来决定到底应该把这个服务安装到那个 node 节点上。此时，它会从 etcd 中读取各个 node 节点的信息，然后按照一定的算法进行选择，并将结果告知 API Server 。
+4. API Server **调用 Controller-Manager 去调用 Node 节点安装 Nginx 服务**。
+5. **kubelet 接收到指令**后，会通知 Docker ，然后由 **Docker 来启动一个 Nginx 的 Pod**（Pod 是 Kubernetes 的最小操作单元，容器必须跑在 Pod 中)
+6. 一个 Nginx 服务就运行了，**如果需要访问 Nginx ，就需要通过 kube-proxy 来对 Pod 产生访问的代理**，这样，外界用户就可以访问集群中的 Nginx 服务了。
 
-```shell
-yum install docker-ce-20.10.7 docker-ce-cli-20.10.7 containerd.io-1.4.6
-```
+> 补充概念
 
-Docker 学习笔记：TODO
+- Master：集群控制节点，每个集群至少有一个 Master 节点来负责集群的管理
+- Node：工作负载节点，由 Master 分配容器到这些 Node 工作节点上，然后 Node 节点上的 Docker 负责容器的运行
+- Pod：**K8S 的最小控制单元，容器都是运行在 Pod 中的，一个 Pod 中可以有一个或多个容器**
+- Controller：控制器，通过它来**实现对 Pod 的管理**，比如启动 Pod 、停止 Pod 、伸缩 Pod 的数量等等
+- Service：**Pod 对外服务的统一入口**，其下面可以**维护同一类的多个 Pod**
+- Label：标签，用于**对 Pod 进行分类**，同一类 P CCCod 会拥有相同的标签
+- NameSpace：命名空间，用来**隔离 Pod 的运行环境。**
 
-> 服务器环境准备
+## 环境搭建
 
-![image-20220106143757231](README.assets/image-20220106143757231.png)
+### 规划
 
-```bash
-# 设置服务器的名字
-hostnamectl set-hostname xxx
+#### 集群类型
 
-# 禁用 SELinux
-sudo setenforce 0
-sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+Kubernetes 的集群一般分为两种：**一主多从** 和 **多主多从**
 
-# 关闭 Swap
-swapoff -a  
-sed -ri 's/.*swap.*/#&/' /etc/fstab
+- 一主多从：一台 Master + N 台 Node 节点，搭建简单，但是有单机故障风险，适合用于测试环境
+- 多主多从：多态 Master + 多态 Node 节点，搭建麻烦，安全性高，适合用于生产环境
 
-# 允许 iptables 检查桥接流量
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
-br_netfilter
-EOF
+![集群搭建类型.png](README.assets/1609119870944-20c07dd5-9a76-42c6-b1df-6cc206e516e6.png)
 
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-ip6tables = 1
-net.bridge.bridge-nf-call-iptables = 1
-EOF
-sudo sysctl --system 
-```
+tips：这里主要是面向开发人员，学习如何使用 K8S 部署项目，搭建的就选择一主多从就好了(运维的同学就需要自己找找其他的文档咯)
 
-> 安装 kubelet & Kubeadm & kubectl
+#### 安装方式
 
-```bash
-cat << EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
-[kubernetes]
-name=Kubernetes
-baseurl=http://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64
-enabled=1
-gpgcheck=0
-repo_gpgcheck=0
-gpgkey=http://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg
-   http://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
-exclude=kubelet kubeadm kubectl
-EOF
+1. minikube：快速搭建单节点的 K8S
+2. **kubeadm**：快速搭建集群的 K8S
+3. 二进制包：从官网上下载每个组件的二进制包，依次去安装，此方式对于理解kubernetes组件更加有效(开发同学不需要管，运维同学可以在学完之后回来搞)
 
-sudo yum install -y kubelet-1.20.9 kubeadm-1.20.9 kubectl-1.20.9 --disableexcludes=kubernetes
+#### 主机规划
 
-sudo systemctl enable --now kubelet
-```
+| 角色   | IP地址          | 操作系统                   | 配置                    |
+| ------ | --------------- | -------------------------- | ----------------------- |
+| Master | 192.168.102.100 | CentOS7.8+，基础设施服务器 | 2核CPU，2G内存，50G硬盘 |
+| Node1  | 192.168.102.101 | CentOS7.8+，基础设施服务器 | 2核CPU，2G内存，50G硬盘 |
+| Node2  | 192.168.102.102 | CentOS7.8+，基础设施服务器 | 2核CPU，2G内存，50G硬盘 |
 
-注意：这个使用的 kubelet 的运行状态是关开关开的，属于正常现象，它需要等待 **Kubeadm** 的指令
+需要在每台服务器上都安装 Docker（18.06.3）、kubeadm（1.18.0）、kubectl（1.18.0）和kubelet（1.18.0）。
 
-> 使用 Kubeadm 初始化节点
+### 环境初始化
 
-1. 下载需要使用的镜像 -> 在所有节点上
+> **三台机器都要**，先跟着操作，具体细节之后就懂了
 
-   ```bash
-   # 定义一个 sh 脚本
-   sudo tee ./images.sh <<-'EOF'
-   #!/bin/bash
-   images=(
-   kube-apiserver:v1.20.9
-   kube-proxy:v1.20.9
-   kube-controller-manager:v1.20.9
-   kube-scheduler:v1.20.9
-   coredns:1.7.0
-   etcd:3.4.13-0
-   pause:3.2
-   )
-   for imageName in ${images[@]} ; do
-   docker pull registry.cn-hangzhou.aliyuncs.com/lfy_k8s_images/$imageName
-   done
+1. 关闭防火墙(生产环境禁止)
+
+   ```shell
+   systemctl stop firewalld
+   systemctl disable firewalld
+   ```
+
+2. 设置主机名
+
+   ```shel
+   hostnamectl set-hostname 主机名
+   ```
+
+3. 设置主机名解析(企业中推荐使用内部的 DNS 服务器)
+
+   ```shell
+   cat >> /etc/hosts << EOF
+   192.168.18.100 k8s-master
+   192.168.18.101 k8s-node1
+   192.168.18.102 k8s-node2
    EOF
-   
-   # 修改权限并执行对应的脚本
-   chmod +x ./images.sh && ./images.sh
    ```
 
-   按道理来说 worker node 应该安装 kube-proxy 组件，但为了不出意外还是一起安装好了
+   ip 地址记得改
 
-2. 初始化 Master 节点 
+4. 时间同步
+
+   ```shel
+   yum install ntpdate -y
+   ntpdate time.windows.com
+   ```
+
+5. 关闭 selinux
+
+   ```shel
+   setenforce 0
+   sed -i 's/enforcing/disabled/' /etc/selinux/config
+   ```
+
+6. 关闭 Swap 分区(也可以不关闭，但需要额外配置，要自己查咯)
+
+   ```shel
+   sed -ri 's/.*swap.*/#&/' /etc/fstab
+   ```
+
+7. 将桥接的IPv4流量传递到iptables的链
+
+   ```shel
+   cat > /etc/sysctl.d/k8s.conf << EOF
+   net.bridge.bridge-nf-call-ip6tables = 1
+   net.bridge.bridge-nf-call-iptables = 1
+   net.ipv4.ip_forward = 1
+   vm.swappiness = 0
+   EOF
+   ```
+
+   ```she
+   # 加载br_netfilter模块
+   modprobe br_netfilter
+   ```
+
+   ```shel
+   # 查看是否加载
+   lsmod | grep br_netfilter
+   ```
+
+   ```shel
+   # 生效
+   sysctl --system
+   ```
+
+8. 开启 ipvs：
+
+   在 kubernetes 中 service 有两种代理模型，一种是基于 iptables，另一种是基于 ipvs 的。ipvs的性能要高于iptables的，但是如果要使用它，需要手动载入ipvs模块。
+
+   ```shel
+   yum -y install ipset ipvsadm
+   ```
+
+   ```shel
+   cat > /etc/sysconfig/modules/ipvs.modules <<EOF
+   #!/bin/bash
+   modprobe -- ip_vs
+   modprobe -- ip_vs_rr
+   modprobe -- ip_vs_wrr
+   modprobe -- ip_vs_sh
+   modprobe -- nf_conntrack_ipv4
+   EOF
+   ```
+
+   ```shel
+   chmod 755 /etc/sysconfig/modules/ipvs.modules && bash /etc/sysconfig/modules/ipvs.modules
+   ```
+
+   ```shel
+   lsmod | grep -e ip_vs -e nf_conntrack_ipv4
+   ```
+
+   ![image-20220521200839951](README.assets/image-20220521200839951.png)
+
+9. 重启
 
    ```shell
-   # 所有机器添加 master 域名映射，以下需要修改为自己的 
-   echo "172.31.0.3  cluster-endpoint" >> /etc/hosts
-   
-   # 只用在 Master 节点执行
-   # --apiserver-advertise-address 为 Master Node IP 地址
+   reboot
+   ```
+
+### 准备基础环境
+
+> 三台服务器都要
+
+#### Docker
+
+1. 使用镜像源下载 docker
+
+   ```shel
+   wget https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo -O /etc/yum.repos.d/docker-ce.repo
+   ```
+
+2. 指定版本安装 Docker
+
+   ```shel
+   yum -y install docker-ce-18.06.3.ce-3.el7
+   ```
+
+3. 启动并设计开机自启
+
+   ```shel
+   systemctl enable docker && systemctl start docker
+   ```
+
+4. 设置 Docker 镜像加速器
+
+   ```shel
+   sudo mkdir -p /etc/docker
+   sudo tee /etc/docker/daemon.json <<-'EOF'
+   {
+     "exec-opts": ["native.cgroupdriver=systemd"],	
+     "registry-mirrors": ["https://du3ia00u.mirror.aliyuncs.com"],	
+     "live-restore": true,
+     "log-driver":"json-file",
+     "log-opts": {"max-size":"500m", "max-file":"3"},
+     "storage-driver": "overlay2"
+   }
+   EOF
+   ```
+
+5. 重启
+
+   ```shel
+   sudo systemctl daemon-reload
+   ```
+
+   ```she
+   sudo systemctl restart docker
+   ```
+
+#### Kubeadm, Kubelet, Kubectl
+
+1. 切换为阿里云的 YUM 软件源
+
+   ```shell
+   cat > /etc/yum.repos.d/kubernetes.repo << EOF
+   [kubernetes]
+   name=Kubernetes
+   baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64
+   enabled=1
+   gpgcheck=0
+   repo_gpgcheck=0
+   gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
+   EOF
+   ```
+
+2. 指定版本号安装
+
+   ```shel
+   yum install -y kubelet-1.18.0 kubeadm-1.18.0 kubectl-1.18.0
+   ```
+
+3. 为了实现 Docker 使用的 cgroup drvier 和 kubelet 使用的 cgroup drver 一致，建议修改"/etc/sysconfig/kubelet"文件的内容
+
+   ```shel
+   vim /etc/sysconfig/kubelet
+   ```
+
+   ```she
+   KUBELET_EXTRA_ARGS="--cgroup-driver=systemd"
+   KUBE_PROXY_MODE="ipvs"
+   ```
+
+4. 设置开启自启(先不用启动，由于没有生成配置文件，集群初始化后自动启动)
+
+   ```shel
+   systemctl enable kubelet
+   ```
+
+   ```shel
    kubeadm init \
-   --apiserver-advertise-address=172.31.0.3 \
-   --control-plane-endpoint=cluster-endpoint \
-   --image-repository registry.cn-hangzhou.aliyuncs.com/lfy_k8s_images \
-   --kubernetes-version v1.20.9 \
-   --service-cidr=10.96.0.0/16 \
-   --pod-network-cidr=192.168.0.0/16
-   
-   mkdir -p $HOME/.kube
-   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-   sudo chown $(id -u):$(id -g) $HOME/.kube/config
-   
-   # 查看集群的节点
-   kubectl get nodes
+     --apiserver-advertise-address=192.168.102.100 \
+     --image-repository registry.aliyuncs.com/google_containers \
+     --kubernetes-version v1.18.0 \
+     --service-cidr=10.96.0.0/12 \
+     --pod-network-cidr=10.244.0.0/16
    ```
 
-   需要保存以下两条命令
+### 部署 K8S 的 Master 节点
 
-   ```bash
-   # 以 Master Node 节点的身份加入到 K8S 的集群中
-   You can now join any number of control-plane nodes by copying certificate authorities
-   and service account keys on each node and then running the following as root:
-   
-   kubeadm join cluster-endpoint:6443 --token ppr195.e0mz16jg232y4wdr \
-   --discovery-token-ca-cert-hash sha256:d3f5eb8a3391ae4e13899c4e5f0768ec1d1236886075375fd7a87f0269724f49 \
-   --control-plane 
-   
-   # 以 Worker Node 节点的身份加入到 Kubernertes 集群中
-   Then you can join any number of worker nodes by running the following on each as root:
-   
-   kubeadm join cluster-endpoint:6443 --token ppr195.e0mz16jg232y4wdr \
-   --discovery-token-ca-cert-hash sha256:d3f5eb8a3391ae4e13899c4e5f0768ec1d1236886075375fd7a87f0269724f49
-   ```
+> 只需要在 Master 节点上运行
 
-3. 在 Master 节点上安装网络插件
+```shel
+# 由于默认拉取镜像地址 k8s.gcr.io 国内无法访问，这里需要指定阿里云镜像仓库地址
+kubeadm init \
+  --apiserver-advertise-address=192.168.102.100 \
+  --image-repository registry.aliyuncs.com/google_containers \
+  --kubernetes-version v1.18.0 \
+  --service-cidr=10.96.0.0/12 \
+  --pod-network-cidr=10.244.0.0/16
+```
 
-   ```shell
-   curl https://docs.projectcalico.org/manifests/calico.yaml -O
-   
-   # 为 Kubernetes 添加插件
-   kubectl apply -f calico.yaml
-   ```
+其中 `--apiserver-advertise-address` 的值修改为当前 Master 服务器的 ip
 
-4. 查看 Kubernertes 已经部署的有用
+![image-20220521210148213](README.assets/image-20220521210148213.png)
 
-   ```bash
-   kubectl get pod -A
-   
-   # 补充一个小概念：在 Docker 中运行的应用称为容器；而 Kubernetes 中称为 Pod
-   ```
+根据提示消息。在 Master 节点上添加 **kubectl** 工具的配置文件
 
-   ![image-20220106193957255](README.assets/image-20220106193957255.png)
+```shel
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
 
-5. 在 Node 节点上通过 token 以相应身份加入到 Kubernertes 集群中
+### 部署 K8S 的 Node 节点
 
-   ```shell
-   # 通过第2部获取的令牌
-   kubeadm join cluster-endpoint:6443 --token ppr195.e0mz16jg232y4wdr \
-   --discovery-token-ca-cert-hash sha256:d3f5eb8a3391ae4e13899c4e5f0768ec1d1236886075375fd7a87f0269724f49
-   
-   # 在 Master 节点上查看集群节点状态(可能会有点延迟，等等就好了)
-   kubectl get nodes
-   ```
+将在 Master 节点上获取到的命令拿到 Node 节点上运行
 
-补充：
+```shel
+kubeadm join 192.168.102.100:6443 --token mmeohm.z3l655i4ee1ufh6w \
+    --discovery-token-ca-cert-hash sha256:9a2bf7f423194b9ddaf47c8b587af9b2abc654d808f3775ceb7ffef1fe7ae876
+```
 
-1. 对于 K8S 集群，所有的查看和监控命令都只能在 Master Node 上运行，Worker Node 中不行
-2. K8S 集群自带自我修复能力，直接关闭电脑，重启后仍可以自动运行集群
+如果令牌过期了
 
-> Kubernetes 生成的令牌默认有 24 小时过期
-
-重新生成令牌 -> 在 Master 节点上运行
-
-```shell
+```shel
 kubeadm token create --print-join-command
 ```
 
-就可以得到
+在主节点上可以看到 K8S 集群信息
 
-```shell
-kubeadm join cluster-endpoint:6443 --token j330zr.raqam8zrg44lungd     --discovery-token-ca-cert-hash sha256:d3f5eb8a3391ae4e13899c4e5f0768ec1d1236886075375fd7a87f0269724f49
+```shel
+kubectl get nodes
 ```
 
-> 部署 Kubernertes 可视化界面 -> Dashboard
+![image-20220522145542274](README.assets/image-20220522145542274.png)
 
-1. 安装插件
+### 网络环境搭建
 
-   ```bash
-   kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.3.1/aio/deploy/recommended.yaml
-   ```
+> 只用在 Master 节点上操作
 
-2. 设置访问端口
+- K8S 支持多种网络插件(flannel/calico/canal等)，任选一种即可，这里使用 fiannel -> 获取[flannel配置文件](https://lark-assets-prod-aliyun.oss-cn-hangzhou.aliyuncs.com/yuque/0/2021/yml/513185/1609860138490-0ef90b45-9b0e-47e2-acfa-0c041f083bf9.yml?OSSAccessKeyId=LTAI4GGhPJmQ4HWCmhDAn4F5&Expires=1653204747&Signature=hrm8NMt2ECqBcVUv7C1xpf%2FWy6k%3D&response-content-disposition=attachment%3Bfilename*%3DUTF-8%27%27kube-flannel.yml)
+
+- 使用配置文件启动 flannel
+
+  ```shel
+  kubectl apply -f kube-flannel.yml
+  ```
+
+- 查看部署 CNI 网络进度
+
+  ```shel
+  kubectl get pods -n kube-system
+  ```
+
+  ![image-20220522151252286](README.assets/image-20220522151252286.png)
+
+- 查看集群状态
+
+  ```shell
+  kubectl get nodes
+  ```
+
+   ![image-20220522151406366](README.assets/image-20220522151406366.png)
+
+- 查看 Master 节点组件健康状态
+
+  ```shell
+  kubectl get cs
+  ```
+
+  ![image-20220522151454394](README.assets/image-20220522151454394.png)
+
+- 查看集群健康状态
+
+  ```shel
+  kubectl cluster-info
+  ```
+
+  ![image-20220522151527700](README.assets/image-20220522151527700.png)
+
+### 环境测试
+
+> 启动一个 Nginx
+
+1. 部署 Nginx
 
    ```shell
-   kubectl edit svc kubernetes-dashboard -n kubernetes-dashboard
+   kubectl create deployment nginx --image=nginx:1.14-alpine
    ```
 
-   将内部的 `type:ClusterIP` 改为 `type:NodePort`
-   
-3. 查看开发的端口号
+2. 暴漏端口
 
-   ```bash
-   [root@k8s-master ~]# kubectl get svc -A |grep kubernetes-dashboard
-   kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP   10.96.10.53    <none>        8000/TCP                 14h
-   kubernetes-dashboard   kubernetes-dashboard        NodePort    10.96.147.62   <none>        443:31466/TCP            14h
+   ```shell
+   kubectl expose deployment nginx --port=80 --type=NodePort
    ```
 
-   例如这里对外暴露的就是 `31466` 端口，前往对应的云服务器安全组进行开放
+3. 查看服务状态
 
-   ![image-20220107103903893](README.assets/image-20220107103903893.png)
-
-4. 访问  https://任意节点ip地址:31466 即可
-
-   ![image-20220107104348856](README.assets/image-20220107104348856.png)
-
-5. 插件访问账号
-
-   ```yaml
-   #创建访问账号，准备一个yaml文件； vi dash-user.yaml
-   apiVersion: v1
-   kind: ServiceAccount
-   metadata:
-     name: admin-user
-     namespace: kubernetes-dashboard
-   ---
-   apiVersion: rbac.authorization.k8s.io/v1
-   kind: ClusterRoleBinding
-   metadata:
-     name: admin-user
-   roleRef:
-     apiGroup: rbac.authorization.k8s.io
-     kind: ClusterRole
-     name: cluster-admin
-   subjects:
-   - kind: ServiceAccount
-     name: admin-user
-     namespace: kubernetes-dashboard
+   ```shell
+   kubectl get pods,service
    ```
 
-   
+   ![image-20220522151957825](README.assets/image-20220522151957825.png)
 
-   ```bash
-   # 添加配置
-   kubectl apply -f dash-user.yaml
-   serviceaccount/admin-user created
-   clusterrolebinding.rbac.authorization.k8s.io/admin-user created
-   
-   #获取访问令牌
-   kubectl -n kubernetes-dashboard get secret $(kubectl -n kubernetes-dashboard get sa/admin-user -o jsonpath="{.secrets[0].name}") -o go-template="{{.data.token | base64decode}}"
-   eyJhbGciOiJSUzI1NiIsImtpZCI6Im1aVVR6djFJOWowLUFrN2pSMjY0REdJSEE5c2pOZG13ZlZETC1SN3lEUkkifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi11c2VyLXRva2VuLXRrdnNtIiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQubmFtZSI6ImFkbWluLXVzZXIiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC51aWQiOiI1NGYwNTYzMC02Y2ZmLTQxMzEtYjgyMi00YTc5NDViNjBmYmEiLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6a3ViZXJuZXRlcy1kYXNoYm9hcmQ6YWRtaW4tdXNlciJ9.Qb3iwO0SxSu4famvJSzXbc90G9TOvsNjNeXDnCeqvElZYbcUN3WizkodyKSLRQxHD0USHWUISWiTqsT3gzRCpupIoH8P_PDLYMJlOXR2lFoSKf-G-HXBqNQLwEdHit1Y_XGbnnoxyJaLbfqMHYgzoAAmILO5ob0G7nmvjDr7EKp13WNZIZq1FfDe0R325wAmlqsoBkoXMXV4z-e9z25O8wgF72IPMXpOyet9Aj6bqY5oWQ_P0Lfhn04wkD-qtxLJc9zVCxGfoLB9lOYoPL2XCOaPzcYWV368-zkUS4QZnHeO5qa6pgTkUQEJxHZWiSagGDPWERZd91ARr66ILsqrsA
-   ```
+4. 访问任意节点的 **32282** 端口
 
-6. 拿令牌去登录
-
-   ![image-20220107104634412](README.assets/image-20220107104634412.png)
-
-   
-
-   
-
-## 核心实战
-
-## 部署项目
-
-## 
+   ![image-20220522152026511](README.assets/image-20220522152026511.png)
