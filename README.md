@@ -460,3 +460,368 @@ kubectl get nodes
 4. 访问任意节点的 **32282** 端口
 
    ![image-20220522152026511](README.assets/image-20220522152026511.png)
+
+### Kubectl 命令自动补全
+
+```shel
+yum install -y bash-completion
+source /usr/share/bash-completion/bash_completion
+source <(kubectl completion bash)
+echo “source <(kubectl completion bash)” >> ~/.bashrc
+```
+
+## 资源管理
+
+> 在线 yaml to json：https://www.json2yaml.com/
+
+### 简介
+
+- 在 K8S 中，所有的内容都抽象为资源，用户需要**通过操作资源来管理K8S**
+  - K8S 本质是一个集群系统，用户可以在集群中部署各种服务(就是在 K8S 集群中运行容器，并将指定的程序跑在容器中)
+  - K8S 的最小管理单元**是 Pod 而不是容器**，所以只能将**容器放在 Pod 中**，而 K8S 一般也不会直接管理 Pod，而是通过 **Pod 控制器** 来管理 Pod
+  - K8S 提供了 **Service** 来实现对 Pod 中的服务进行访问
+  - 当然，如果 Pod 中程序的数据需要持久化，K8S 还提供了相关**存储系统**
+
+![资源管理介绍.png](README.assets/1609132417114-28600d3c-185f-4ded-9f5e-c0d77fb86d80.png)
+
+学习 K8S 的核心，就是学习如何对集群中的 **Pod/Pod控制器/Service/存储** 等各种资源进行操作
+
+### YAML
+
+#### 介绍
+
+- YAML是一个类似于 XML、JSON 的标记性语言。它强调的是以“数据”为中心，并不是以标记语言为重点。因而YAML本身的定义比较简单，号称是“一种人性化的数据格式语言”。
+- YAML的语法比较简单，主要有下面的几个：
+  - 大小写敏感。
+
+  - 使用缩进表示层级关系。
+
+  - 缩进不允许使用tab，只允许空格（低版本限制）。
+
+  - 缩进的空格数不重要，只要相同层级的元素左对齐即可。
+
+  - `# ` 表示注释。
+
+- YAML支持以下几种数据类型：
+  - 常量：单个的、不能再分的值。
+
+  - 对象：键值对的集合，又称为映射/哈希/字典。
+  - 数组：一组按次序排列的值，又称为序列/列表
+
+
+#### 语法示例
+
+常量
+
+```yaml
+#常量，就是指的是一个简单的值，字符串、布尔值、整数、浮点数、NUll、时间、日期
+# 布尔类型
+c1: true
+# 整型
+c2: 123456
+# 浮点类型
+c3: 3.14
+# null类型
+c4: ~ # 使用~表示null
+# 日期类型
+c5: 2019-11-11 # 日期类型必须使用ISO 8601格式，即yyyy-MM-dd
+# 时间类型
+c6: 2019-11-11T15:02:31+08.00 # 时间类型使用ISO 8601格式，时间和日期之间使用T连接，最后使用+代表时区
+# 字符串类型
+c7: haha # 简单写法，直接写值，如果字符串中间有特殊符号，必须使用双引号或单引号包裹
+c8: line1
+    line2 # 字符串过多的情况可以折成多行，每一行都会转换成一个空格
+```
+
+对象
+
+```yaml
+# 对象
+# 形式一（推荐）：
+xudaxian:	
+	name: 许大仙
+	age: 16
+# 形式二（了解）：
+xuxian: { name: 许仙, age: 18 }
+```
+
+数组
+
+```yaml
+# 数组
+# 形式一（推荐）：
+address:
+	- 江苏
+	- 北京
+# 形式二（了解）：
+address: [江苏,上海]
+```
+
+### 资源管理方式
+
+#### 分类
+
+1. 命令式对象管理：直接使用 **命令** 操作 K8S 的资源
+
+   ```shell
+   kubectl run nginx-pod --image=nginx:1.17.1 --port=80
+   ```
+
+2. 命令式对象配置：通过 **命令+配置文件** 的方式操作 K8S 的资源
+
+   ```shell
+   kubectl create -f nginx-pod.yaml
+   ```
+
+3. 声明式对象配置：通过 **apply命令+配置文件** 的方式操作 K8S 的资源(只能创建/更新pod)
+
+   ```shell
+   kubectl apply -f nginx-pod.yaml
+   ```
+
+| 类型           | 操作 | 适用场景 | 优点           | 缺点                               |
+| -------------- | ---- | -------- | -------------- | ---------------------------------- |
+| 命令式对象管理 | 对象 | 测试     | 简单           | 只能操作活动对象，无法审计、跟踪   |
+| 命令式对象配置 | 文件 | 开发     | 可以审计、跟踪 | 项目大的时候，配置文件多，操作麻烦 |
+| 声明式对象配置 | 目录 | 开发     | 支持目录操作   | 意外情况下难以调试                 |
+
+#### 命令式对象管理 
+
+##### Kubectl 命令
+
+- Kubectl 是 K8S 集群的命令行工具，通过它能对集群本身进行管理，也能在集群上进行容器化应用的安装和部署
+
+  ```shell
+  kubectl [command] [type] [name] [flags]
+  ```
+
+  - `command`: 要对资源执行的操作(craete/get/delete等)
+  - `type`: 指定资源的类型(deployment/pod/service等)
+  - `name`: 指定资源的名称(大小写敏感)
+  - `flags`: 额外的可选参数
+
+- 示例：查看所有的 pod
+
+  ```shell
+  kubectl get pods
+  ```
+
+- 示例：查看一个具体的 pod
+
+  ```shell
+  kubectl get pod nginx-55f8fd7cfc-czf64
+  ```
+
+- 示例：查看某个 pod，以 yaml 格式显示其信息
+
+  ```shell
+  kubectl get pod nginx-55f8fd7cfc-czf64 -o yaml
+  ```
+
+##### 操作类型
+
+K8S 允许你对资源进行多种操作，可以通过 `--help` 查看
+
+经常使用的有：
+
+- 基本命令
+
+  | 命令    | 翻译 | 命令作用     |
+  | ------- | ---- | ------------ |
+  | create  | 创建 | 创建一个资源 |
+  | edit    | 编辑 | 编辑一个资源 |
+  | get     | 获取 | 获取一个资源 |
+  | patch   | 更新 | 更新一个资源 |
+  | delete  | 删除 | 删除一个资源 |
+  | explain | 解释 | 展示资源文档 |
+
+- 运行和调试
+
+  | 命令      | 翻译     | 命令作用                   |
+  | --------- | -------- | -------------------------- |
+  | run       | 运行     | 在集群中运行一个指定的镜像 |
+  | expose    | 暴露     | 暴露资源为Service          |
+  | describe  | 描述     | 显示资源内部信息           |
+  | logs      | 日志     | 输出容器在Pod中的日志      |
+  | attach    | 缠绕     | 进入运行中的容器           |
+  | exec      | 执行     | 执行容器中的一个命令       |
+  | cp        | 复制     | 在Pod内外复制文件          |
+  | rollout   | 首次展示 | 管理资源的发布             |
+  | scale     | 规模     | 扩（缩）容Pod的数量        |
+  | autoscale | 自动调整 | 自动调整Pod的数量          |
+
+- 高级命令
+
+  | 命令  | 翻译 | 命令作用               |
+  | ----- | ---- | ---------------------- |
+  | apply | 应用 | 通过文件对资源进行配置 |
+  | label | 标签 | 更新资源上的标签       |
+
+- 其他命令
+
+  | 命令         | 翻译     | 命令作用                     |
+  | ------------ | -------- | ---------------------------- |
+  | cluster-info | 集群信息 | 显示集群信息                 |
+  | version      | 版本     | 显示当前Client和Server的版本 |
+
+##### 资源类型
+
+- K8S 中的所有内容都抽象为资源，可以通过 `api-resources` 查看
+
+- 经常使用的资源：
+
+  - 集群级别资源
+
+    | 资源名称   | 缩写 | 资源作用     |
+    | ---------- | ---- | ------------ |
+    | nodes      | no   | 集群组成部分 |
+    | namespaces | ns   | 隔离Pod      |
+
+  - Pod 资源
+
+    | 资源名称 | 缩写 | 资源作用 |
+    | -------- | ---- | -------- |
+    | Pods     | po   | 装载容器 |
+
+  - Pod 资源控制器
+
+    | 资源名称                 | 缩写   | 资源作用    |
+    | ------------------------ | ------ | ----------- |
+    | replicationcontrollers   | rc     | 控制Pod资源 |
+    | replicasets              | rs     | 控制Pod资源 |
+    | deployments              | deploy | 控制Pod资源 |
+    | daemonsets               | ds     | 控制Pod资源 |
+    | jobs                     |        | 控制Pod资源 |
+    | cronjobs                 | cj     | 控制Pod资源 |
+    | horizontalpodautoscalers | hpa    | 控制Pod资源 |
+    | statefulsets             | sts    | 控制Pod资源 |
+
+  - 服务发现资源
+
+    | 资源名称 | 缩写 | 资源作用        |
+    | -------- | ---- | --------------- |
+    | services | svc  | 统一Pod对外接口 |
+    | ingress  | ing  | 统一Pod对外接口 |
+
+  - 存储资源
+
+    | 资源名称   | 缩写 | 资源作用 |
+    | ---------- | ---- | -------- |
+    | configmaps | cm   | 配置     |
+    | secrets    |      | 配置     |
+
+##### 应用实例
+
+> 创建&删除 namespace&pod
+
+1. 创建一个 `namespace`
+
+   ```shell
+   kubectl create ns dev
+   ```
+
+2. 查看一个 `ns(namesapce)` 
+
+   ```shell
+   kubectl get ns dev
+   ```
+
+3. 在刚刚创建的 `ns` 中创建一个 `pod`
+
+   ```shell
+   kubectl run nginx --image=nginx:1.14-alpine -n dev
+   ```
+
+4. 查看 `ns` 中 `pod` 的信息
+
+   ```shell
+   kubectl get pod nginx -n dev
+   ```
+
+5. 删除 `ns` 中的 `pod`
+
+   ```shell
+   kubectl delete pod nginx -n dev
+   ```
+
+6. 删除 `ns`
+
+   ```shell
+   kubectl delete ns dev
+   ```
+
+#### 命令式对象配置
+
+- 命令式对象配置：通过 **命令+配置文件** 的方式操作 K8S 的资源
+
+> 应用示例：创建&查看&删除 ns&pod
+
+1. 创建一个 `nginx-pod.yaml`(先用着，里面的配置后面都会学)
+
+   ```yaml
+   apiVersion: v1
+   kind: Namespace
+   metadata:
+     name: dev
+   ---
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: nginxpod
+     namespace: dev
+   spec:
+     containers:
+       - name: nginx-containers
+         image: nginx:1.14-alpine
+   ```
+
+2. 执行 `craete` 命令，创建资源(命令+配置文件)
+
+   ```shell
+   kubectl create -f nginx-pod.yaml
+   ```
+
+3. 执行 `get` 命令，查看配置文件中声明的资源
+
+   ```shell
+   kubectl get -f nginx-pod.yaml
+   ```
+
+4. 执行 `delete` 命令。删除配置文件中声明的资源
+
+   ```shell
+   kubectl delete -f nginx-pod.yaml
+   ```
+
+配置文件中就是声明命令需要的各种参数
+
+#### 声明式对象配置
+
+##### 概述
+
+- 通过 `apply`命令+配置文件去操作 K8S 的资源
+- 和命令式对象配置类似，只不过它只有一个 `apply` 命令
+- `apply` = `create`/`patch`
+
+##### 应用示例
+
+````shell
+kubectl apply -f nginx-pod.yaml
+````
+
+![image-20220522193416178](README.assets/image-20220522193416178.png)
+
+#### 使用方式推荐
+
+- 创建/更新资源 - 声明式对象配置 - `kubectl apply -f xxx.yaml`
+- 删除资源 - 命令式对象管理 - `kubectl delete -f xxx.yaml`
+- 查询资源 - 命令式对象管理 - `kubectl get(describe) 资源 `
+
+#### 扩展：在 Node 节点上运行 Kubectl
+
+kubectl的运行需要进行配置，它的配置文件是$HOME/.kube，如果想要在Node节点上运行此命令，需要将Master节点的.kube文件夹复制到Node节点上，即在Master节点上执行下面的操作：
+
+```shell
+scp -r $HOME/.kube node节点ip:$HOME
+```
+
