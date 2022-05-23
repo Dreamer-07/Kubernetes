@@ -825,3 +825,533 @@ kubectl的运行需要进行配置，它的配置文件是$HOME/.kube，如果�
 scp -r $HOME/.kube node节点ip:$HOME
 ```
 
+## 实战入门
+
+### NameSpace
+
+#### 概述
+
+- 主要作用：实现 `多套系统的资源隔离` / `多租户的资源隔离`
+- 默认情况下，K8S 的集群中所有的 Pod 都是可以相互访问的，但我们可以通过将不同的 Pod(资源) 划分到不同的 NameSpace 中，形成逻辑上的"组"，以方便不同的组的资源进行隔离使用和管理
+- 可以通过 K8S 的授权机制，将不同的 NS 交给不同的租户进行管理，实现多租户的资源隔离，此时还能结合 **K8S 的资源配额机制**，限定不同租户能占用的资源(CPU,内容使用量等)，来实现对租户可用资源的管理
+
+![Namespace概述.png](README.assets/1609137920951-be890509-fe17-4be4-935b-f4f687745a1b.png)
+
+- K8S 集群在启动之后，会默认创建几个 namesapce
+
+  ```shell
+  kubectl get ns
+  ```
+
+  ![image-20220523084701705](README.assets/image-20220523084701705.png)
+
+  > default： 所有未指定 NS 的资源都会被分配到该 NS 中
+  >
+  > kube-node-lease: 集群节点之间的心跳维护(1.13中引入)
+  >
+  > kube-public: 此命名空间的资源可以被所有用户访问(包括未认证)
+  >
+  > kube-system: 所有由 K8S系统 创建的资源都处于这个命名空间
+
+#### 使用
+
+- 查看所有的命名空间
+
+  ```shell
+  kubectl get namesapce
+  ```
+
+   ![image-20220523100210699](README.assets/image-20220523100210699.png)
+
+- 查看指定的命名空间
+
+  ```shell
+  kubectl get namespace default
+  ```
+
+   ![image-20220523100253744](README.assets/image-20220523100253744.png)
+
+- 指定命名空间的输出格式
+
+  ```shell
+  kubectl get namespace default -o yaml/json/wide
+  ```
+
+  ![image-20220523100420682](README.assets/image-20220523100420682.png)
+
+- 查看命名空间的详情
+
+  ```shell
+  kubectl describe namespace default
+  ```
+
+  ```shell
+  [root@k8s-master ~]# kubectl describe namespace default
+  Name:         default
+  Labels:       <none>
+  Annotations:  <none>
+  Status:       Active  #Active: 命名空间正在使用; Terminating: 正在删除命名空间
+  
+  No resource quota.	  #针对命名空间做的资源限制
+  
+  No LimitRange resource. #针对命名空间的每个组件做的资源限制
+  ```
+
+- 创建命名空间
+
+  ```shell
+  kubectl create namesapce dev
+  ```
+
+- 删除命名空间
+
+  ```shell
+  kubectl delete ns dev
+  ```
+
+- 使用命令式对象配置
+
+  - 新建一个 `ns-dev.yaml`
+
+    ```yaml
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: dev
+    ```
+
+  - 创建命名空间
+
+    ```shell
+    kubectl craete -f ns-dev.yaml
+    ```
+
+  - 删除命名空间
+
+    ```shell
+    kubectl delete -f ns-dev.yaml
+    ```
+
+### Pod
+
+#### 概述
+
+- Pod 是 K8S 集群管理的**最小单元**，程序必须部署到容器中，而容器必须部署在 Pod 中
+
+- Pod 可以认为对容器的封装，一个 Pod 中可以存在一个或多个容器
+
+   ![Pod概述.png](README.assets/1609137223448-715c6ece-0158-4ee2-9efa-fcff15e143ed.png)
+
+- K8S 在集群启动之后，集群中的各个组件也是以 Pod 方式运行的
+
+  ```shell
+  kubectl get pods -n kube-system
+  ```
+
+   ![image-20220523102734068](README.assets/image-20220523102734068.png)
+
+#### 使用
+
+- 语法：创建并运行 Pod
+
+  ```shell
+  kubectl run (Pod的名称) [参数]
+  # --image 指定Pod的镜像
+  # --port 指定端口
+  # --namespace 指定namespace
+  ```
+
+- 在名称为 `dev` 的 namesapce 下创建一个 Nginx 的 Pod
+
+  ```shell
+  kubectl run nginx --image=nginx:1.14-alpine --port=80 --namespace=dev
+  ```
+
+- 查看指定命名空间下的所有的 Pod
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+   ![image-20220523103411426](README.assets/image-20220523103411426.png)
+
+- 查看 Pod 的详细信息
+
+  ```shell
+  kubectl describe pod pod的名称 [-n 命名空间名称]
+  ```
+
+  ```shell
+  kubectl describe pod nginx -n dev
+  ```
+
+  ![image-20220523103651958](README.assets/image-20220523103651958.png)
+
+- 访问 Pod 中的容器
+
+  ```shell
+  # 获取 pod 的 ip(现在只能对内范围且不是固定的)
+  kubectl get pod -n dev -o wide
+  ```
+
+  ![image-20220523103803808](README.assets/image-20220523103803808.png)
+
+  ```shell
+  # 访问 pod 中的容器
+  curl 10.244.1.9:80
+  ```
+
+  ![image-20220523103843403](README.assets/image-20220523103843403.png)
+
+- 删除指定的 Pod
+
+  ```shell
+  kubectl detele pod nginx -n dev
+  ```
+
+- 命令式对象配置
+
+  - 新建一个 `pod-nginx.yaml`
+
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nginx
+      namespace: dev
+    spec:
+      containers:
+      - image: nginx:1.14-alpine
+        name: pod
+        ports: 
+        - name: nginx-port
+          containerPort: 80
+          protocol: TCP
+    ```
+
+  - 创建一个 Pod
+
+    ```shell
+    kubectl create -f pod-nginx.yaml
+    ```
+
+  - 删除一个 Pod
+
+    ```shell
+    kubectl delete -f pod-nginx.yaml
+    ```
+
+### Label
+
+#### 概述
+
+- 作用：为资源添加标识，用来对它们进行区分和选择
+
+- 特点：
+
+  1. 一个 Label 会以 key/value 键值的形式附加到各种对象上，如 Node/Pod/Service 等
+  2. 一个资源对象可以定义任意数量的 Label，同一个 Label 也可以被添加到任意数量的资源对象上去
+  3. Label 通常在资源对象定义时确定，当然也可以在对象创建后动态的添加和删除
+
+- 可以通过Label实现资源的多纬度分组，以便灵活、方便地进行资源分配、调度、配置和部署等管理工作
+
+  > 一些常用的Label标签示例如下：
+  >
+  > - 版本标签：“version”:”release”,”version”:”stable”
+  >
+  > - 环境标签：“environment”:”dev”,“environment”:”test”,“environment”:”pro”
+  >
+  > - 架构标签：“tier”:”frontend”,”tier”:”backend”
+
+- 需要通过 Label Selector 对标签进行选择：
+  - Label 用于对某个资源定义标识
+  - Label Selector 用于查询和筛选拥有某些标签的资源对象
+- 当前有两种Label Selector
+
+- - 基于**等式**的 Label Selector。
+    - `name=slave`：选择所有包含 Label 中的 key=“name” 并且 value=“slave” 的对象。
+
+- - - `env!=production`：选择所有包含 Label 中的 key=“env” 并且 value!=“production” 的对象。
+
+- - 基于**集合**的 Label Selector。
+
+- - - `name in (master,slave)`：选择所有包含 Label 中的 key=“name” 并且 value=“master” 或 value=“slave” 的对象。
+
+- - - `name not in (master,slave)`：选择所有包含 Label 中的 key=“name” 并且 value!=“master” 和 value!=“slave” 的对象。
+
+- 标签的选择条件可以使用多个，此时将多个Label Selector进行组合，使用**逗号（,）**进行分隔即可。
+
+- - name=salve,env!=production。
+
+- - name not in (master,slave),env!=production。
+
+#### 使用
+
+- 为资源动态添加标签
+
+  ```shell
+  kubectl label 资源类型 具体资源 [-n 命名空间] label.key=lavbel.value
+  ```
+
+  ```shell
+  kubectl label pod nginx -n dev version=1.0
+  ```
+
+- 查看资源的标签
+
+  ```shell
+  kubectl get pod nginxpod -n dev --show-labels
+  ```
+
+   ![image-20220523110744139](README.assets/image-20220523110744139.png)
+
+- 更新资源的标签(一个资源不允许拥有两个 key 相同的 label)
+
+  ```shell
+  kubectl label pod nginxpod -n dev version=2.0 --overwrite
+  ```
+
+  ![image-20220523110759507](README.assets/image-20220523110759507.png)
+
+- 筛选标签
+
+  ```shell
+  kubectl get 资源类型 -l 筛选条件 [-n 命名空间] --show-labels
+  ```
+
+  ```shell
+  kubectl get pod nginxpod -n dev --show-labels
+  ```
+
+  ![image-20220523111118433](README.assets/image-20220523111118433.png)
+
+- 删除标签
+
+  ```shell
+  kubectl label 资源类型 具体资源 [-n 命名空间] label.key-
+  ```
+
+  ```shell
+  kubectl label pod nginx -n dev version-
+  ```
+
+   ![image-20220523124559091](README.assets/image-20220523124559091.png)
+
+- xl使用命令式对象配置
+
+  - 修改 `pod-nginx.yaml`
+
+    ```yaml
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: nginx
+      namespace: dev
+      # 设置标签
+      labels:
+        version: "3.0"
+        env: "test"        
+    spec:
+      containers:
+      - image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        name: pod
+        ports: 
+        - name: nginx-port
+          containerPort: 80
+          protocol: TCP
+    ```
+
+  - 执行创建
+
+    ```shell
+    kubectl apply -f pod-nginx.yaml
+    ```
+
+  - 查看标签
+
+    ![image-20220523125205078](README.assets/image-20220523125205078.png)
+
+### Deployment
+
+#### 概述
+
+- 在 K8S 中，Pod 是最小的控制单元，但一般 K8S 都是通过 **Pod控制器** 完成对 Pod 的控制
+
+- Pod 控制器用于 Pod的管理，确保Pod资源符合预期的状态，当Pod的资源出现故障时，会尝试进行重启/重建Pod
+
+- 在 K8S 中的 Pod控制器 种类有很多，这里先介绍一种：Deloyment
+
+   ![Deployment概述.png](README.assets/1609137432883-b2ec0213-7c10-4efa-9689-066a4e239a74.png)
+
+#### 使用
+
+- 创建指定名称的 `deployment`
+
+  ```shell
+  kubectl create deployment 名称 [-n 命名空间]
+  ```
+
+  ```shell
+  # 需要通过 --image 指定 pod 中需要运行的容器
+  kubectl create deployment nginx-deploy --image=nginx:1.17.1 -n dev
+  ```
+
+- 对指定的 `deployment` 创建指定数量的 pod
+
+  ```shell
+  kubectl scale deployment xxx [--replicas=正整数] [-n 命名空间]
+  ```
+
+  ```shell
+  kubectl scale deployment nginx-deploy --replicas=3 -n dev
+  ```
+
+- 查看 `deploy` && `pods`
+
+  ```shell
+  kubectl get deploy,pod -n dev
+  ```
+
+   ![image-20220523131606035](README.assets/image-20220523131606035.png)
+
+- 查看 `deploy` 的详细信息
+
+  ```shell
+  kubectl get deployment nginx-deplpy -n dev
+  ```
+
+   ![image-20220523131748624](README.assets/image-20220523131748624.png)
+
+  ```shell
+  kubectl describe deploy nginx-deploy -n dev
+  ```
+
+  ![image-20220523131853253](README.assets/image-20220523131853253.png)
+
+- 删除 `deploy`
+
+  ```shell
+  kubectl delete deployment nginx-deploy -n dev
+  ```
+
+- 命令式对象配置
+
+  - 创建一个 `deploy-nginx.yaml`
+
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: nginx
+      namespace: dev
+    spec:
+      # pod 的数量
+      replicas: 3
+      selector:
+        # 需要匹配的 pod 的 label
+        matchLabels:
+          run: nginx
+      template:
+        metadata:
+          # 为生成的 pod 添加一个标签
+          labels:
+            run: nginx
+        spec:
+          # 指定 pod 中运行的容器
+          containers:
+          - image: nginx:1.17.1
+            name: nginx
+            ports:
+            - containerPort: 80
+              protocol: TCP
+    ```
+
+### Service
+
+#### 概述
+
+- 通过 Deploy 可以一组 Pod 来提供具体高可用性的服务，虽然每个 Pod 都会分配一个单独的 IP 地址，但是存在以下问题
+
+  - Pod 的 IP 会随着 Pod 的重建产生变化
+
+    ![image-20220523134300857](README.assets/image-20220523134300857.png)
+
+  - Pod 的 IP 仅仅是就请你内部可见的虚拟 IP，**外部无法访问**
+
+    ![image-20220523134100093](README.assets/image-20220523134100093.png)
+
+- Service 可以看作是**一组同类的Pod**对外的访问接口，借助 Service，应用可以方便的实现**服务发现和负载均衡**
+
+   ![Service概述.png](README.assets/1609137571725-a4754fdb-d0a1-4a49-a7a4-169fc6cc9703.png)
+
+#### 使用
+
+- 创建集群内部访问的 Service
+
+  ```shell
+  kubectl expose deploy xxx --name=服务名 --type=ClusterIP --port=对外暴漏端口 --target-port=指向集群中的Pod的端口 [-n 命名空间]
+  ```
+
+  ```shell
+  kubectl expose deploy nginx --name=svc-deploy-nginx --type=ClusterIp --port=80 --target-port=80 -n dev
+  ```
+
+- 查看 Service
+
+  ```shell
+  kubectl get svc -n dev
+  ```
+
+  ![image-20220523135142985](README.assets/image-20220523135142985.png)
+
+- 创建集群外部访问的 Service
+
+  ```shell
+  kubectl expose deployment nginx --name=svc-deploy-nginx2 --type=NodePort --port=80 --target-port=80  -n dev
+  ```
+
+  ![image-20220523135414863](README.assets/image-20220523135414863.png)
+
+  ![image-20220523135515353](README.assets/image-20220523135515353.png)
+
+- 删除 Service
+
+  ```shell
+  kubectl delete service svc-deploy-nginx -n dev
+  ```
+
+- 命令式对象配置
+
+  - 新建一个 `svc-nginx.yaml`
+
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: svc-nginx
+      namespace: dev
+    spec:
+      clusterIP: 10.109.179.231
+      ports:
+      - port: 80
+        protocol: TCP
+        targetPort: 80
+      selector:
+        run: nginx
+      type: ClusterIP
+    ```
+
+  - 创建
+
+    ```shell
+    kubectl create -f svc-nginx.yaml
+    ```
+
+  - 删除
+
+    ```shell
+    kubectl delete -f svc-nginx.yaml
+    ```
+
+    
