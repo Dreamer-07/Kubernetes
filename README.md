@@ -1354,4 +1354,459 @@ scp -r $HOME/.kube node节点ip:$HOME
     kubectl delete -f svc-nginx.yaml
     ```
 
-    
+## Pod 详解
+
+### Pod 的介绍
+
+#### Pod 的结构
+
+Pod 的架构图
+
+ ![Pod的结构.png](README.assets/1609399357456-e5dc5f6d-7c2e-44bf-aae3-50d51ec951e9.png)
+
+- 每个 Pod 中都包含一个/多个容器，这些容器可以分为两类
+
+- **Pause** 容器：这是每个 Pod 都有会的一个**根容器**，主要作用：
+
+  1. 可以以它为依赖，评估整个 Pod 的健康状况
+
+  2. 可以在根容器上设置IP地址，**其它容器都共享此IP（Pod的IP）**，以实现**Pod内部的网络通信**
+
+     (这里是Pod内部的通讯，**Pod之间的通讯采用虚拟二层网络技术来实现，我们当前环境使用的是Flannel**)。
+
+#### Pod 的定义
+
+- Pod 的配置(yaml)的资源清单
+
+  ```yaml
+  apiVersion: v1     #必选，版本号，例如v1
+  kind: Pod       　 #必选，资源类型，例如 Pod
+  metadata:       　 #必选，元数据
+    name: string     #必选，Pod名称
+    namespace: string  #Pod所属的命名空间,默认为"default"
+    labels:       　　  #自定义标签列表
+      - name: string      　          
+  spec:  #必选，Pod中容器的详细定义
+    containers:  #必选，Pod中容器列表
+    - name: string   #必选，容器名称
+      image: string  #必选，容器的镜像名称
+      imagePullPolicy: [ Always|Never|IfNotPresent ]  #获取镜像的策略 
+      command: [string]   #容器的启动命令列表，如不指定，使用打包时使用的启动命令
+      args: [string]      #容器的启动命令参数列表
+      workingDir: string  #容器的工作目录
+      volumeMounts:       #挂载到容器内部的存储卷配置
+      - name: string      #引用pod定义的共享存储卷的名称，需用volumes[]部分定义的的卷名
+        mountPath: string #存储卷在容器内mount的绝对路径，应少于512字符
+        readOnly: boolean #是否为只读模式
+      ports: #需要暴露的端口库号列表
+      - name: string        #端口的名称
+        containerPort: int  #容器需要监听的端口号
+        hostPort: int       #容器所在主机需要监听的端口号，默认与Container相同
+        protocol: string    #端口协议，支持TCP和UDP，默认TCP
+      env:   #容器运行前需设置的环境变量列表
+      - name: string  #环境变量名称
+        value: string #环境变量的值
+      resources: #资源限制和请求的设置
+        limits:  #资源限制的设置
+          cpu: string     #Cpu的限制，单位为core数，将用于docker run --cpu-shares参数
+          memory: string  #内存限制，单位可以为Mib/Gib，将用于docker run --memory参数
+        requests: #资源请求的设置
+          cpu: string    #Cpu请求，容器启动的初始可用数量
+          memory: string #内存请求,容器启动的初始可用数量
+      lifecycle: #生命周期钩子
+  		postStart: #容器启动后立即执行此钩子,如果执行失败,会根据重启策略进行重启
+  		preStop: #容器终止前执行此钩子,无论结果如何,容器都会终止
+      livenessProbe:  #对Pod内各容器健康检查的设置，当探测无响应几次后将自动重启该容器
+        exec:       　 #对Pod容器内检查方式设置为exec方式
+          command: [string]  #exec方式需要制定的命令或脚本
+        httpGet:       #对Pod内个容器健康检查方法设置为HttpGet，需要制定Path、port
+          path: string
+          port: number
+          host: string
+          scheme: string
+          HttpHeaders:
+          - name: string
+            value: string
+        tcpSocket:     #对Pod内个容器健康检查方式设置为tcpSocket方式
+           port: number
+         initialDelaySeconds: 0       #容器启动完成后首次探测的时间，单位为秒
+         timeoutSeconds: 0    　　    #对容器健康检查探测等待响应的超时时间，单位秒，默认1秒
+         periodSeconds: 0     　　    #对容器监控检查的定期探测时间设置，单位秒，默认10秒一次
+         successThreshold: 0
+         failureThreshold: 0
+         securityContext:
+           privileged: false
+    restartPolicy: [Always | Never | OnFailure]  #Pod的重启策略
+    nodeName: <string> #设置NodeName表示将该Pod调度到指定到名称的node节点上
+    nodeSelector: obeject #设置NodeSelector表示将该Pod调度到包含这个label的node上
+    imagePullSecrets: #Pull镜像时使用的secret名称，以key：secretkey格式指定
+    - name: string
+    hostNetwork: false   #是否使用主机网络模式，默认为false，如果设置为true，表示使用宿主机网络
+    volumes:   #在该pod上定义共享存储卷列表
+    - name: string    #共享存储卷名称 （volumes类型有很多种）
+      emptyDir: {}       #类型为emtyDir的存储卷，与Pod同生命周期的一个临时目录。为空值
+      hostPath: string   #类型为hostPath的存储卷，表示挂载Pod所在宿主机的目录
+        path: string      　　        #Pod所在宿主机的目录，将被用于同期中mount的目录
+      secret:       　　　#类型为secret的存储卷，挂载集群与定义的secret对象到容器内部
+        scretname: string  
+        items:     
+        - key: string
+          path: string
+      configMap:         #类型为configMap的存储卷，挂载预定义的configMap对象到容器内部
+        name: string
+        items:
+        - key: string
+          path: string
+  ```
+
+- 查看各种资源的配置项
+
+  ```shell
+  kubectl explain 资源类型[.属性]
+  ```
+
+  ```shell
+  kubectl explain pod
+  ```
+
+  ![image-20220523142053369](README.assets/image-20220523142053369.png)
+
+  ![image-20220523142200727](README.assets/image-20220523142200727.png)
+
+> 在kubernetes中基本所有资源的一级属性都是一样的，主要包含5个部分：
+>
+> - apiVersion  \<string>：版本，有 kubernetes 内部定义，版本号必须用`kubectl api-versions`查询。
+>
+> - kind \<string>：类型，有 kubernetes 内部定义，类型必须用`kubectl api-resources`查询。
+>
+> - metadata  \<Object>：元数据，主要是资源标识和说明，常用的有 `name、namespace、labels` 等。
+>
+> - **spec** \<Object>：描述，这是配置中最重要的一部分，里面是对各种资源配置的详细描述。
+>
+> - status  \<Object>：状态信息，里面的内容**不需要定义，由kubernetes自动生成。**
+>
+> 在上面的属性中，spec是接下来研究的重点，继续看下它的常见子属性：
+>
+> - containers  <[]Object>：容器列表，用于定义容器的详细信息。
+>
+> - nodeName \<String>：根据 nodeName 的值将Pod调度到**指定的Node节点**上(也可以不配置，让Schedule配置)。
+>
+> - nodeSelector  <map[]> ：根据 NodeSelector 中定义的信息选择该 Pod 调度到**包含这些 Label 的 Node 上**。
+>
+> - hostNetwork  \<boolean>：是否使用主机网络模式，默认为false，如果设置为true，表示使用宿主机网络(如果使用这个，注意端口冲突)
+>
+> - volumes    <[]Object> ：存储卷，用于定义Pod上面挂载的存储信息。
+>
+> - restartPolicy	\<string>：重启策略，表示Pod在遇到故障的时候的处理策略。
+
+### Pod 的配置
+
+#### 概述
+
+- 这里主要先研究 `pod.spec.containers` 属性的配置，也是 Pod 配置中**最关键**的一项配置
+
+- 查看 `pod.spec.containers` 的可选配置项
+
+  ```shell
+  kubectl explain pod.spec.containers
+  ```
+
+  ```shell
+  # 比较常用的属性
+  KIND:     Pod
+  VERSION:  v1
+  RESOURCE: containers <[]Object>   # 数组，代表可以有多个容器FIELDS:
+    name  <string>     # 容器名称
+    image <string>     # 容器需要的镜像地址
+    imagePullPolicy  <string> # 镜像拉取策略 
+    command  <[]string> # 容器的启动命令列表，如不指定，使用打包时使用的启动命令
+    args   <[]string> # 容器的启动命令需要的参数列表 
+    env    <[]Object> # 容器环境变量的配置
+    ports  <[]Object>  # 容器需要暴露的端口号列表
+    resources <Object> # 资源限制和资源请求的设置
+  ```
+
+#### 基本配置
+
+- 创建 `pod-base.yaml` 文件
+
+  ```yaml
+  apiVersion: v1		# 固定值
+  kind: Pod			# 资源名称
+  metadata:
+    name: pod-base	# pod name
+    namespace: dev	# pod 隶属的 namesapce
+    labels:
+      user: xudaxian  # 打上 label
+  spec:
+    containers:
+      - name: nginx # 容器名称
+        image: nginx:1.17.1 # 容器需要的镜像地址
+      - name: busybox # 容器名称
+        image: busybox:1.30 # 容器需要的镜像地址
+  ```
+
+- 使用声明式对象配置使用该文件
+
+  ```shell
+  kubectl apply -f pod-base.yaml
+  ```
+
+  ![image-20220523144938878](README.assets/image-20220523144938878.png)
+
+- 通过 `describe` 查看一个 pod 的详情
+
+  ```shell
+  kubectl describe pod pod-base -n dev
+  ```
+
+  ![image-20220523145119575](README.assets/image-20220523145119575.png)
+
+#### 镜像拉取
+
+- 创建 `pod-imagepullpolicy.yaml` 
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-imagepullpolicy
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers:
+      - name: nginx # 容器名称
+        image: nginx:1.17.1 # 容器需要的镜像地址
+        imagePullPolicy: Always # 用于设置镜像的拉取策略
+      - name: busybox # 容器名称
+        image: busybox:1.30 # 容器需要的镜像地址
+  ```
+
+  - **imagePullPolicy**：用于设置镜像**拉取的策略**，K8S 支持三种拉取策略：
+    - Always：总是从远程仓库拉取镜像（一直远程下载）。
+    - IfNotPresent：本地有则使用本地镜像，本地没有则从远程仓库拉取镜像（本地有就用本地，本地没有就使用远程下载）
+    - Never：只使用本地镜像，从不去远程仓库拉取，本地没有就报错（一直使用本地，没有就报错）
+  - 默认情况下：
+    - 如果镜像的 `tag` 为具体的版本号，默认使用 **IfNotPresent**
+    - 如果镜像的 `tag` 为 **latest**，默认使用 **Always**
+
+- 创建 pod
+
+  ```shell
+  kubectl apply -f pod-imagepullpolicy.yaml
+  ```
+
+#### 启动命令
+
+- 在前面的案例中由于 `busybox` 并不是一个程序，在被启动之后就会自动关闭，可以使用 `command` 配置解决
+
+- `command`：在 Pod 中的容器初始化后执行的一个命令
+
+- 创建一个 `pod-command.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-command
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers:
+      - name: nginx # 容器名称
+        image: nginx:1.17.1 # 容器需要的镜像地址
+        imagePullPolicy: IfNotPresent # 设置镜像拉取策略
+      - name: busybox # 容器名称
+        image: busybox:1.30 # 容器需要的镜像地址
+        command: ["/bin/sh","-c","touch /tmp/hello.txt;while true;do /bin/echo $(date +%T) >> /tmp/hello.txt;sleep 3;done;"]
+  ```
+
+- 启动 pod
+
+  ```shell
+  kubectl apply -f pod-command.yaml
+  ```
+
+- 查看 pod 运行状态
+
+   ![image-20220523152938589](README.assets/image-20220523152938589.png)
+
+- 进入到容器中查看运行详情
+
+  ```shell
+  kubectl exec -it pod名称 [-n 命名空间] -c 容器名 /bin/sh
+  ```
+
+  ```shell
+  kubectl exec -it pod-command -n dev -c busybox /bin/sh
+  ```
+
+  ![image-20220523153224831](README.assets/image-20220523153224831.png)
+
+- 注意：和 **command** 配置相似的还有一个 **args** 配置
+  - 如果 command & args 都没有配置：使用容器 Dockerfile 的配置(ENTRYPOINT)
+  - 如果 command 有，args 没有：Dockerfile 的配置会被忽略，使用 command
+  - 如果 command 没有, args 有，Dockerfile 配置的 ENTRYPOINT 会被执行，使用当前的 args 作为参数
+  - 如果 command & args 都有，Dockerfile 的配置会被忽略，执行 command 并追加 args
+
+#### 环境变量(不推荐)
+
+- 创建 `pod-env.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-env
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers:
+      - name: nginx # 容器名称
+        image: nginx:1.17.1 # 容器需要的镜像地址
+        imagePullPolicy: IfNotPresent # 设置镜像拉取策略
+      - name: busybox # 容器名称
+        image: busybox:1.30 # 容器需要的镜像地址
+        command: ["/bin/sh","-c","touch /tmp/hello.txt;while true;do /bin/echo $(date +%T) >> /tmp/hello.txt;sleep 3;done;"]
+        env:
+          - name: "username"
+            value: "admin"
+          - name: "password"
+            value: "123456"
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-env.yaml
+  ```
+
+- 进入到容器内部
+
+  ```shell
+  kubectl exec -it pod-env -n dev -c busybox /bin/sh
+  ```
+
+- 查看环境变量
+
+  ```shell
+  / # echo $username
+  admin
+  ```
+
+> 此种方式不推荐，推荐将这些配置单独存储在配置文件中，后面介绍。
+
+#### 端口设置
+
+- 关于 `ports` 的子配置
+
+  ```shell
+  kubectl explain pod.spec.containers.ports
+  ```
+
+  ![image-20220523154255380](README.assets/image-20220523154255380.png)
+
+  ```yaml
+  KIND:     Pod
+  VERSION:  v1
+  RESOURCE: ports <[]Object>
+  FIELDS:
+    name <string> # 端口名称，如果指定，必须保证 name 在pod中是唯一的
+    containerPort <integer> # 容器要监听的端口(0<x<65536)
+    hostPort <integer> # 容器要在主机上公开的端口，如果设置，主机上只能运行容器的一个副本(一般省略）
+    hostIP <string>  # 要将外部端口绑定到的主机IP(一般省略)
+    protocol <string>  # 端口协议。必须是UDP、TCP或SCTP。默认为“TCP”
+  ```
+
+- 创建 `pod-ports.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-ports
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers:
+      - name: nginx # 容器名称
+        image: nginx:1.17.1 # 容器需要的镜像地址
+        imagePullPolicy: IfNotPresent # 设置镜像拉取策略
+        ports:
+          - name: nginx-port # 端口名称，如果执行，必须保证name在Pod中是唯一的
+            containerPort: 80 # 容器要监听的端口 （0~65536）
+            protocol: TCP # 端口协议
+  ```
+
+- 执行
+
+  ```yaml
+  kubectl apply -f pod-ports.yaml
+  ```
+
+- 查看 pod 的详细信息
+
+  ![image-20220523154729934](README.assets/image-20220523154729934.png)
+
+  可以通过 **PodIP:ContainerPort** 访问对应的容器
+
+#### 资源配额
+
+- K8S 提供了容器对**内存和CPU**的限额机制，避免某个容器吃掉大量的资源，导致其他容器无法进行
+
+  - `limits`: 用于限制运行的容器的最大占用资源，当容器占用资源超过limits时会被终止，并进行重启。
+  - `requests`: 用于设置容器需要的最小资源，如果环境资源不够，容器将无法启动。
+  - 可以通过 limits + requests 设置资源的上下限
+
+- 创建 `pod-resources.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-resoures
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers:
+      - name: nginx # 容器名称
+        image: nginx:1.17.1 # 容器需要的镜像地址
+        imagePullPolicy: IfNotPresent # 设置镜像拉取策略
+        ports: # 端口设置
+          - name: nginx-port # 端口名称，如果执行，必须保证name在Pod中是唯一的
+            containerPort: 80 # 容器要监听的端口 （0~65536）
+            protocol: TCP # 端口协议
+        resources: # 资源配额
+          limits: # 限制资源的上限
+            cpu: "2" # CPU限制，单位是core数
+            memory: "10Gi" # 内存限制
+          requests: # 限制资源的下限
+            cpu: "1" # CPU限制，单位是core数 
+            memory: "10G" # 内存限制
+  ```
+
+  cpu：core数，可以为整数或小数。
+
+  memory：内存大小，可以使用Gi、Mi、G、M等形式。
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-resources.yaml
+  ```
+
+- 查看 pod 状态
+
+  ```shell
+  kubectl describe pod pod-resoures -n dev
+  ```
+
+  ![image-20220523155335153](README.assets/image-20220523155335153.png)
+
+- 
+
