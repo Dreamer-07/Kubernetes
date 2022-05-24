@@ -2297,3 +2297,637 @@ livenessProbe
   ```
 
   ![image-20220524090717858](README.assets/image-20220524090717858.png)
+
+### Pod 的调度
+
+#### 概述
+
+- 在默认情况下，一个 Pod 的调度在哪个 Node 节点上运行，是由 **Scheduler** 组件采用相应算法计算出来的
+
+- 但在实际开发中，我们都会向控制某些 Pod 达到指定的节点上，就需要学习 K8S 的调度方式
+
+  - 自动调度：运行在哪个Node节点上完全由Scheduler经过一系列的算法计算得出。
+
+  - 定向调度：NodeName、NodeSelector。
+
+  - 亲和性调度：NodeAffinity、PodAffinity、PodAntiAffinity。
+
+  - 污点（容忍）调度：Taints、Toleration。
+
+#### 定向调度
+
+##### 概述
+
+- 使用在 Pod 上声明的 `nodeName`/`nodeSelector`，以此将 Pod 调度到期望的 Node 节点上
+- 注意: 定向调度是强制的，这就意味着即使要调度的目标 Node 不存在。也会向上面进行调度，只不过 Pod 运行失败而已
+
+##### NodeName
+
+- 用于将 Pod 调度到指定 **name** 的 Node 节点上，会直接跳过 Scheduler 的调度逻辑
+
+- 创建 `pod-nodename.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-nodename
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+    nodeName: k8s-node1 # 指定调度到k8s-node1节点上
+  ```
+
+- 执行 
+
+  ```shell
+  kubectl apply -f pod-nodename.yaml
+  ```
+
+- 查看 Pod 运行状态
+
+  ```shell
+  kubectl get pod -n dev -o wide
+  ```
+
+  ![image-20220524094636418](README.assets/image-20220524094636418.png)
+
+  ![image-20220524094752847](README.assets/image-20220524094752847.png)
+
+##### NodeSelector
+
+- 用于将 Pod 调度到添加了**指定标签的 Node 节点上**，通过 K8S 的 `label-selector` 机制实现的
+
+- 在 Pod 创建之前，会有 Scheduler 使用 MatchNodeSelector 调度策略进行 label 匹配，找出目标 node，然后将 Pod 调度到目标节点
+
+- 为 node 节点添加 label
+
+  ```shell
+  [root@k8s-master pod]# kubectl label node k8s-node1 env=test
+  node/k8s-node1 labeled
+  [root@k8s-master pod]# kubectl label node k8s-node2 env=prod
+  node/k8s-node2 labeled
+  ```
+
+- 创建 `pod-nodeselector.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-nodeselector
+    namespace: dev
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+    nodeSelector:
+      env: test # 指定调度到具有nodeenv=pro的Node节点上
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-nodeselector.yaml
+  ```
+
+- 查看 pod 运行状态
+
+  ```shell
+  kubectl get pod -n dev -o wide
+  ```
+
+  ![image-20220524095246403](README.assets/image-20220524095246403.png)
+
+#### 亲和性调度
+
+##### 概述
+
+- 定向调度的缺点：如果没有满足条件的 Node，那么 Pod 将不会被运行(即使集群中还有可用的 Node 节点也不行)
+- 而**亲和性调度**是在 nodeSelector 的基础上进行了扩展，现优先选择满足条件的 Node 进行调度，如果没有，也可以调度到不满足条件的节点上，使得调度更加灵活。
+- 分类
+  1. nodeAffinity(node亲和性)
+  2. podAffinity(pod亲和性)
+  3. podAntiAffinity(pod反亲和性)
+- 关于**亲和性**和**反亲和性**的使用场景说明：
+  - 亲和性：如果两个应用**频繁交互**，那么就有必要利用亲和性让两个应用尽可能的靠近，这样可以较少因网络通信而带来的性能损耗
+  - 反亲和性：当应用采用**多副本部署**的时候，那么就有必要利用反亲和性让各个应用实例打散分布在各个Node上，这样可以**提高服务的高可用性。**
+
+##### Node 亲和性
+
+- 优选选择符合条件的 Node 节点
+
+- 查看 nodeAffinity 的可选配置项
+
+  ```yaml
+  pod.spec.affinity.nodeAffinity
+    requiredDuringSchedulingIgnoredDuringExecution  Node节点必须满足指定的所有规则才可以，相当于硬限制
+      nodeSelectorTerms  节点选择列表
+        matchFields   按节点字段列出的节点选择器要求列表  
+        matchExpressions   按节点标签列出的节点选择器要求列表(推荐)
+          key    键
+          values 值
+          operator 关系符 支持Exists, DoesNotExist, In, NotIn, Gt, Lt
+    preferredDuringSchedulingIgnoredDuringExecution 优先调度到满足指定的规则的Node，相当于软限制 (倾向)
+      preference   一个节点选择器项，与相应的权重相关联
+        matchFields 按节点字段列出的节点选择器要求列表
+        matchExpressions   按节点标签列出的节点选择器要求列表(推荐)
+          key 键
+          values 值
+          operator 关系符 支持In, NotIn, Exists, DoesNotExist, Gt, Lt  
+      weight 倾向权重，在范围1-100。
+  ```
+
+  关系符使用说明：
+
+  ```yaml
+  - matchExpressions:
+  	- key: nodeenv # 匹配存在标签的key为nodeenv的节点
+  	  operator: Exists   
+  	- key: nodeenv # 匹配标签的key为nodeenv,且value是"xxx"或"yyy"的节点
+  	  operator: In    
+        values: ["xxx","yyy"]
+      - key: nodeenv # 匹配标签的key为nodeenv,且value大于"xxx"的节点
+        operator: Gt   
+        values: "xxx"
+  ```
+
+- 硬限制：只能选择满足了所有条件的 Node，如果没有 Pod 就会运行失败(这个是特殊的，和 NodeSelector 一样，但配置多一点)
+
+  1. 创建 `pod-nodeaffinity-required.yaml`
+
+     ```yaml
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: pod-nodeaffinity-required
+       namespace: dev
+     spec:
+       containers: # 容器配置
+         - name: nginx
+           image: nginx:1.17.1
+           imagePullPolicy: IfNotPresent
+           ports:
+             - name: nginx-port
+               containerPort: 80
+               protocol: TCP
+       affinity: # 亲和性配置
+         nodeAffinity: # node亲和性配置
+           requiredDuringSchedulingIgnoredDuringExecution: # Node节点必须满足指定的所有规则才可以，相当于硬规则，类似于定向调度
+             nodeSelectorTerms: # 节点选择列表
+               - matchExpressions:
+                   - key: nodeenv # 匹配存在标签的key为nodeenv的节点，并且value是"xxx"或"yyy"的节点
+                     operator: In
+                     values:
+                       - "xxx"
+                       - "yyy"
+     ```
+
+  2. 执行
+
+     ```shell
+     kubectl apply -f pod-nodeaffinity-required.yaml
+     ```
+
+  3. 查看节点运行状态
+
+     ```shell
+     kubectl get pod pod-nodeaffinity-required  -n dev -o wide
+     ```
+
+     ![image-20220524102618907](README.assets/image-20220524102618907.png)
+
+- 软限制：优先调度到满足条件的 Node 节点，如果没有会调度到可用的 Node 节点上
+
+  1. 创建 `pod-nodeaffinity-preferred.yaml`
+
+     ```yaml
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: pod-nodeaffinity-preferred
+       namespace: dev
+     spec:
+       containers: # 容器配置
+         - name: nginx
+           image: nginx:1.17.1
+           imagePullPolicy: IfNotPresent
+           ports:
+             - name: nginx-port
+               containerPort: 80
+               protocol: TCP
+       affinity: # 亲和性配置
+         nodeAffinity: # node亲和性配置
+           preferredDuringSchedulingIgnoredDuringExecution: # 优先调度到满足指定的规则的Node，相当于软限制 (倾向)
+             - preference: # 一个节点选择器项，与相应的权重相关联
+                 matchExpressions:
+                   - key: nodeenv
+                     operator: In
+                     values:
+                       - "xxx"
+                       - "yyy"
+               weight: 1
+     ```
+
+  2. 执行
+
+     ```shell
+     kubectl apply -f pod-nodeaffinity-preferred.yaml
+     ```
+
+  3. 查看 Pod 运行状态
+
+     ```shell
+     kubectl get pod -n dev -o wide
+     ```
+
+     ![image-20220524103323648](README.assets/image-20220524103323648.png)
+
+- nodeAffinity 的注意事项：
+  - (软硬限制)如果同时定义了nodeSelector和nodeAffinity，那么必须两个条件都满足，Pod才能运行在**指定的Node**上。
+  - (硬限制)如果nodeAffinity指定了多个**nodeSelectorTerms**，那么只需要其中一个能够匹配成功即可。
+  - (软硬限制)如果一个**nodeSelectorTerms/preference**中有多个matchExpressions，则一个节点必须满足所有的才能匹配成功。
+  - 如果一个Pod所在的Node在Pod运行期间其标签发生了改变，不再符合该Pod的nodeAffinity的要求，则系统将忽略此变化。(亲和度配置只在调度时生效)
+
+##### Pod 亲和性
+
+- 以运行的 Pod 为参照，实现让新创建的 Pod 和参照的 Pod 在一个区域的功能
+
+- PodAffinity 的可选配置项
+
+  ```yaml
+  pod.spec.affinity.podAffinity
+    requiredDuringSchedulingIgnoredDuringExecution  硬限制
+      namespaces 指定参照pod的namespace
+      topologyKey 指定调度作用域
+      labelSelector 标签选择器
+        matchExpressions  按节点标签列出的节点选择器要求列表(推荐)
+          key    键
+          values 值
+          operator 关系符 支持In, NotIn, Exists, DoesNotExist.
+        matchLabels    指多个matchExpressions映射的内容  
+    preferredDuringSchedulingIgnoredDuringExecution 软限制    
+      podAffinityTerm  选项
+        namespaces
+        topologyKey
+        labelSelector
+           matchExpressions 
+              key    键  
+              values 值  
+              operator
+           matchLabels 
+      weight 倾向权重，在范围1-1
+  ```
+
+  topologyKey：用于指定调度的作用域：
+
+  - 如果指定为 `kubernetes.io/hostname`，那就是以Node节点为区分范围。
+  - 如果指定为 `beta.kubernetes.io/os`，则以 Node节点的操作系统类型来区分。
+
+- 软限制和硬限制的区别已经讲过，这里就以 **requiredDuringSchedulingIgnoredDuringExecution(硬限制)** 为栗子
+
+  1. 创建一个参照的 Pod `pod-podaffinity-target.yaml`
+
+     ```yaml
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: pod-podaffinity-target
+       namespace: dev
+       labels:
+         podenv: pro # 设置标签
+     spec:
+       containers: # 容器配置
+         - name: nginx
+           image: nginx:1.17.1
+           imagePullPolicy: IfNotPresent
+           ports:
+             - name: nginx-port
+               containerPort: 80
+               protocol: TCP
+       nodeName: k8s-node1 # 将目标pod定向调度到k8s-node1
+     ```
+
+  2. 执行
+
+     ```shell
+     kubectl apply -f pod-podaffinity-target.yaml
+     ```
+
+  3. 查看参照 Pod 的运行状态
+
+     ```shell
+     kubectl get pod -n dev -o wide
+     ```
+
+     ![image-20220524134400023](README.assets/image-20220524134400023.png)
+
+  4. 创建 Pod `pod-podaffinity-requred.yaml`
+
+     ```yaml
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: pod-podaffinity-requred
+       namespace: dev
+     spec:
+       containers: # 容器配置
+         - name: nginx
+           image: nginx:1.17.1
+           imagePullPolicy: IfNotPresent
+           ports:
+             - name: nginx-port
+               containerPort: 80
+               protocol: TCP
+       affinity: # 亲和性配置
+         podAffinity: # Pod亲和性
+           requiredDuringSchedulingIgnoredDuringExecution: # 硬限制
+             - topologyKey: kubernetes.io/hostname # 分到同一个 Node 上
+               labelSelector:
+                 matchExpressions: # 该Pod必须和拥有标签podenv=xxx或者podenv=yyy的Pod在同一个Node上，显然没有这样的Pod
+                   - key: podenv
+                     operator: In
+                     values:
+                       - "pro"
+               
+     ```
+
+  5. 执行
+
+     ```yaml
+     kubectl apply -f pod-podaffinity-requred.yaml
+     ```
+
+  6. 查看 Pod 状态
+
+     ```shell
+     kubectl get pod -n dev -o wide
+     ```
+
+     ![image-20220524135400357](README.assets/image-20220524135400357.png)
+
+##### Pod 反亲和度
+
+- PodAntiAffinity 主要实现以运行的 Pod 为参照，**让新创建的 Pod 和参照的 Pod 不在一个区域的功能**
+
+- 配置方式和 podAffinity 一样
+
+- 使用上个案例中的目标 Pod
+
+- 创建 `pod-podantiaffinity-requred.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-podantiaffinity-requred
+    namespace: dev
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+    affinity: # 亲和性配置
+      podAntiAffinity: # Pod反亲和性
+        requiredDuringSchedulingIgnoredDuringExecution: # 硬限制
+          - labelSelector:
+              matchExpressions:
+                - key: podenv
+                  operator: In
+                  values:
+                    - "pro"
+            topologyKey: kubernetes.io/hostname
+  ```
+
+- 执行
+
+  ```yaml
+  vim pod-podantiaffinity-requred.yaml
+  ```
+
+- 查看 Pod 运行状况
+
+  ```shell
+  kubectl get pod -n dev -o wide
+  ```
+
+  ![image-20220524135840118](README.assets/image-20220524135840118.png)
+
+#### 污点和容忍
+
+##### 污点
+
+- 可以通过为 `Node` 节点添加 **污点属性**，来决定是否运行 Pod 调度过来
+- Node 被设置了污点之后就和 Pod 存在一个互斥的关系，进而拒绝 Pod 调度进来，甚至可以将已经存在的 Pod 驱逐出去
+- 污点的格式为 `key=value:effect`, key 和 value 是污点的标签，effect 是对污点的描述，支持三个选项
+  1. PrefreNoSchedule: kubernetes 将尽量避免把 Pod 调度到具有该污点的Node上，除非没有其他节点可以调度。
+  2. NoSchedule：kubernetes 将不会把 Pod 调度到具有该污点的 Node 上，但是不会影响当前 Node上 已经存在的 Pod。
+  3. NoExecute: kubernetes 将不会把 Pod 调度到具有该污点的 Node 上，同时也会将 Node 上已经存在的 Pod 驱逐。
+
+![污点的三种格式.png](README.assets/1609400444401-f4579175-f530-45e3-a219-19d31b1cf4a5.png)
+
+- 语法
+
+  - 设置污点
+
+    ```shell
+    kubectl taint node xx key=value:effect
+    ```
+
+  - 去除污点
+
+    ```shell
+    kubectl taint node xx key:effect-
+    ```
+
+  - 去除所有污点
+
+    ```shell
+    kubectl taint node xxx key-
+    ```
+
+- 示例
+
+  1. 准备节点k8s-node1（为了演示效果更加明显，暂时停止k8s-node2节点）
+
+  2. 为 k8s-node2 节点设置一个 `byq=txdy:PreferNoSchedule` 污点
+
+     ```shell
+     kubectl taint node k8s-node1 byq=txdy:PreferNoSchedule
+     ```
+
+  3. 查看指定节点的污点
+
+     ```shell
+     kubectl describe nodes k8s-node1
+     ```
+
+     ![image-20220524150459135](README.assets/image-20220524150459135.png)
+
+  4. 创建 Pod1
+
+     ```shell
+     kubectl run pod1 --image=nginx:1.17.1 -n dev
+     ```
+
+  5. 查看 Pod 情况
+
+     ```shell
+     kubectl get pod -n dev
+     ```
+
+     ![image-20220524150719067](README.assets/image-20220524150719067.png)
+
+  6. 删除 node1 上的污点并重启设置(NoSchedule)
+
+     ```shell
+     kubectl taint node k8s-node1 byq:PreferNoSchedule-
+     ```
+
+     ```shelll
+     kubectl taint node k8s-node1 byq=txdy:NoSchedule
+     ```
+
+  7. 创建 Pod2
+
+     ```shell
+     kubectl run pod2 --image=nginx:1.17.1 -n dev
+     ```
+
+  8. 查看 Pod 状况
+
+     ```shell
+     kubectl get pod -n dev -o wide
+     ```
+
+     ![image-20220524151114527](README.assets/image-20220524151114527.png)
+
+  9. 删除 node1 上的污点并重启设置(NoExecute)
+
+     ```shell
+     kubectl taint node k8s-node1 byq:NoSchedule-
+     ```
+
+     ```shell
+     kubectl taint node k8s-node1 byq=txdy:NoExecute
+     ```
+
+  10. 创建 Pod3
+
+      ```shell
+      kubectl run pod3 --image=nginx:1.17.1 -n dev
+      ```
+
+  11. 查看 Pod 状况
+
+      ```shelll
+      kubectl get pod -n dev -o wide
+      ```
+
+      ![image-20220524151535029](README.assets/image-20220524151535029.png)
+
+> 使用**kubeadm**搭建的集群，默认就会给 Master 节点添加一个污点标记，所以 Pod 就不会调度到 Master 节点上。
+
+##### 容忍
+
+- Node 可以通过**污点**来拒绝 Pod 调度上来，而 Pod 也可以通过设置 **容忍** 强制调度到 Pod 上去
+
+- 容忍的详细配置
+
+  ```yaml
+  kubectl explain pod.spec.tolerations
+  ......
+  FIELDS:
+    key       # 对应着要容忍的污点的键，空意味着匹配所有的键
+    value     # 对应着要容忍的污点的值
+    operator  # key-value的运算符，支持Equal和Exists（默认）
+    effect    # 对应污点的effect，空意味着匹配所有影响
+    tolerationSeconds   # 容忍时间, 当effect为NoExecute时生效，表示pod在Node上的停留时间
+  ```
+
+  当 `operator` 为 **Equal** 的时候，如果 Node 节点有多个 Taint，那么 Pod 必须容忍每个 Taint 才能部署上去
+
+  当 `operator` 为 **Exists** 的时候，有如下的三种写法：
+
+  - 容忍指定的污点，但只考虑指定的 **effect**
+
+    ```yaml
+      tolerations: # 容忍
+        - key: "tag" # 要容忍的污点的key
+          operator: Exists # 操作符
+          effect: NoExecute # 添加容忍的规则，这里必须和标记的污点规则相同
+    ```
+
+  - 容忍指定的污点，不考虑 **effect**
+
+    ```yaml
+      tolerations: # 容忍
+        - key: "tag" # 要容忍的污点的key
+          operator: Exists # 操作符
+    ```
+
+  - 容忍一切污点
+
+    ```shell
+     tolerations: # 容忍
+        - operator: Exists # 操作符
+    ```
+
+- 为 k8s-node1 打上  **NoExecute** 的污点，此时 Pod 是调度不上去的，此时可以通过在 Pod 中添加容忍，将 Pod 调度上去
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-toleration
+    namespace: dev
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+    tolerations: # 容忍
+      - key: "tag" # 要容忍的污点的key
+        operator: Equal # 操作符
+        value: "xudaxian" # 要容忍的污点的value
+        effect: NoExecute # 添加容忍的规则，这里必须和标记的污点规则相同
+  ```
+
+- 查看 Pod 状态
+
+  ```shell
+  kubectl get pod pod-toleration  -n dev -o wide
+  ```
+
+  ![image-20220524190901758](README.assets/image-20220524190901758.png)
+
+#### 临时容器
+
+#### 服务质量 Qos
+
+### Pod 控制器
+
+
+
