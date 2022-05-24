@@ -1808,5 +1808,492 @@ Pod 的架构图
 
   ![image-20220523155335153](README.assets/image-20220523155335153.png)
 
-- 
+### Pod 的生命周期
 
+- 我们一般将 Pod 对象从**创建到终止**这段时间范围称为 Pod 的生命周期：
+  1. Pod 创建过程
+  2. 运行**初始化容器过程**
+  3. 运行**主容器**
+     - 容器启动后钩子，容器终止前钩子
+     - 容器的存活性探测，就绪性探测
+  4. Pod 的终止过程
+
+![Pod的生命周期.png](README.assets/1609399647590-472c8628-8b69-42ab-8a50-929c27737926.png)
+
+- 在整个生命周期中，Pod 会出现5中**状态(相位)**：
+  - 挂起(Pending): Api Server 已经创建了 Pod 资源对象，但其尚未被调度/处于下载镜像的过程中
+  - 运行中(Running): Pod 已经被调度到某节点上，并且所有的容器都已经创建完成
+  - 成功(Succeeded): Pod 的所有容器都已经成功终止并且不会被重启
+  - 失败(Failed): 所有容器都已经终止，但至少有一个容器终止失败(即容器返回了非 0 值的退出状态)
+  - 未知(Unkown): Api Server 无法正常获取到 Pod 对象的状态信息(通常是由于网络通信失败所导致的)
+
+#### 创建和终止
+
+![Pod的创建过程.jpg](README.assets/1609399660203-ab0d9834-3b35-4119-b304-4394b00f0b9d.jpeg)
+
+##### Pod 的创建过程
+
+1. 用户通过 `kubectl` 或其他api客户端提交需要创建的 Pod 给 ApiServer
+2. Api Server 开始生成 Pod 对象的信息，并将信息存入到 **etcd**，然后返回确认信息到客户端
+3. Api Server 开始对外暴露 etch 中 Pod 对象的变化，其他组件使用 **watch机制** 跟踪检查 Api Server 上的变动
+4. **Scheduler** 发现有新的 Pod 对象要创建，开始**为 Pod 分配主机并将结果信息更新到 Api Server**
+5. Node 节点上的 kubelet 发现有 Pod 要调度过来，通过 Docker 启动容器并将结果信息更新到 Api Server
+6. Api Server 将接收到的 Pod 状态信息存入到 etcd 中
+
+##### Pod 的终止过程
+
+1. 用户向 Api Server 发送删除 Pod 对象的命令
+
+2. Api Server 中的 Pod 对象信息会随着的推移而更新，在宽限期内(默认 30s)，Pod 视为 dead
+
+3. 将 Pod 标记为 “Terminating” 状态。
+
+4. （与第3步同时运行）kubelet 在监控到 Pod 对象转为 “Terminating” 状态的同时**启动 Pod 关闭程序**。
+
+5. （与第3步同时运行）**端点控制器**监控到 Pod 对象的关闭行为时将其从所有匹配到此端点的 **Service 资源的端点列表中移除。**(关闭对外访问)
+
+6. 如果当前 Pod 对象定义了 preStop 钩子处理器，则在其标记为 “terminating” 后即会以同步的方式启动执行；
+
+   如若宽限期(30s)结束后，preStop 仍未执行结束，则第2步会被重新执行并额外获取一个时长为2秒的小宽限期。
+
+7. Pod 对象中的容器**进程收到停止信号**。
+
+8. 宽限期结束后，若存在任何一个仍在运行的进程，那么 Pod 对象即会收到 SIGKILL 信号。
+
+9. kubelet 请求 API Server 将此 Pod 资源的宽限期设置为0从而完成删除操作，它变得对用户不在可见。
+
+> 默认情况下，所有删除操作的宽限期都是30秒，不过，kubectl delete 命令可以使用“--grace-period=”选项自定义其时长，若使用0值则表示直接强制删除指定的资源，不过，此时需要同时为命令使用 “--force” 选项。
+
+#### 初始化容器
+
+- 初始化容器是在 **Pod 的主容器启动之前要运行的容器**，主要是做一些主容器的前置工作，具体两大特征：
+
+  1. 初始化容器必须运行完成直至结束，如果某个初始化容器运行失败，那么 K8S 需要重启它直至功能完成
+  2. 初始化容器必须按照定义的顺序执行，当且仅当前一个成功之后，后面的一个才能运行
+
+- 应用场景
+
+  1. 提供主容器镜像中**不具备**的工具程序或自定义代码
+  2. 应用容器的启动可能需要某些依赖的条件，可以在初始化容器中先于应用容器串行启动并运行完成，保证应用容器的运行依赖条件得到满足
+
+- 模拟下场景2：假设主容器运行需要 Nginx，但是在 Nginx 运行之前需要连接上其他两台的服务器
+
+  1. 创建 `pod-initcontainer.yaml` 文件
+
+     ```yaml
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: pod-initcontainer
+       namespace: dev
+       labels:
+         user: xudaxian
+     spec:
+       containers: # 容器配置
+         - name: nginx
+           image: nginx:1.17.1
+           imagePullPolicy: IfNotPresent
+           ports:
+             - name: nginx-port
+               containerPort: 80
+               protocol: TCP
+           resources:
+             limits:
+               cpu: "2"
+               memory: "10Gi"
+             requests:
+               cpu: "1"
+               memory: "10Mi"
+       initContainers: # 初始化容器配置
+         - name: test-mysql
+           image: busybox:1.30
+           command: ["sh","-c","until ping 192.168.102.104 -c 1;do echo waiting for mysql ...;sleep 2;done;"]
+           securityContext:
+             privileged: true # 使用特权模式运行容器
+         - name: test-redis
+           image: busybox:1.30
+           command: ["sh","-c","until ping 192.168.102.105 -c 1;do echo waiting for redis ...;sleep 2;done;"]
+     ```
+
+     注意修改下 ip 地址为当前网段内的没有使用过的 ip
+
+  2. 执行
+
+     ```shell
+     kubectl apply -f pod-initcontainer.yaml
+     ```
+
+  3. 查看容器状态
+
+     ```shell
+     kubectl get pods -n dev
+     ```
+
+      ![image-20220523194239270](README.assets/image-20220523194239270.png)
+
+  4. 动态监视 pod
+
+     ```shell
+     kubectl get pod pod-initcontainer -n dev -w
+     ```
+
+  5. 打开一个新窗口，依次输入以下命令
+
+     ```shell
+     ifconfig ens33:1 192.168.102.104 netmask 255.255.255.0 up
+     ```
+
+     ```shell
+     ifconfig ens33:1 192.168.102.105 netmask 255.255.255.0 up
+     ```
+
+  6. 观察原窗口的变化
+
+     ![image-20220523194515392](README.assets/image-20220523194515392.png)
+
+#### 钩子函数
+
+- 钩子函数能在指定的时刻到来时运行用户指定的程序代码
+
+- K8S 在主容器启动之后和停止之前提供了两个钩子函数
+
+  - post start: 在容器创建后运行，如果失败会重启容器
+  - pre  stop:  在容器终止前执行，执行完成之后容器将成功终止，在其完成之前会**阻塞删除容器的操作**
+
+- 钩子处理器支持三种方式定义动作
+
+  1. `exec`: 在容器内执行一次命令
+
+     ```yaml
+     ……
+       lifecycle:
+          postStart: 
+             exec:
+                command:
+                  - cat
+                  - /tmp/healthy
+     ……
+     ```
+
+  2. `tcpSocket`: 在当前容器尝试访问指定的 socket
+
+     ```yaml
+     …… 
+        lifecycle:
+           postStart:
+              tcpSocket:
+                 port: 8080
+     ……
+     ```
+
+  3. `httpGet`: 在当前容器中向某 url 发起 HTTP 请求
+
+     ```yaml
+     …… 
+        lifecycle:
+           postStart:
+              httpGet:
+                 path: / #URI地址
+                 port: 80 #端口号
+                 host: 192.168.109.100 #主机地址  
+                 scheme: HTTP #支持的协议，http或者https
+     ……
+     ```
+
+- 创建一个 `pod-hook-exec.yaml` 文件
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-hook-exec
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+        resources:
+          limits:
+            cpu: "2"
+            memory: "10Gi"
+          requests:
+            cpu: "1"
+            memory: "10Mi"
+        lifecycle: # 生命周期配置
+          postStart: # 容器创建之后执行，如果失败会重启容器
+            exec: # 在容器启动的时候，执行一条命令，修改掉Nginx的首页内容
+              command: ["/bin/sh","-c","echo postStart ... > /usr/share/nginx/html/index.html"]
+          preStop: # 容器终止之前执行，执行完成之后容器将成功终止，在其完成之前会阻塞删除容器的操作
+            exec: # 在容器停止之前停止Nginx的服务
+              command: ["/usr/sbin/nginx","-s","quit"]
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-hook-exec.yaml
+  ```
+
+- 查看 Pod Ip
+
+  ```shell
+  kubectl get pods pod-hook-exec -n dev -o wide
+  ```
+
+  ![image-20220523200143249](README.assets/image-20220523200143249.png)
+
+- 访问对应的 80 端口查看其输出内容
+
+  ```shell
+  [root@k8s-master pod]# curl 10.244.2.13:80
+  postStart ...
+  ```
+
+#### 容器探测
+
+##### 概述
+
+- 作用：检测容器中的应用示例是否正常工作，是保障业务可用性的一种传统机制；经过探测后，如果实例的状态不符合预期，那么 K8S 就会把该问题实例 **"摘除"，不承担业务流量**
+
+- 分类
+
+  1. liveness probes: 存活性探测，决定是否重启容器，用于检测应用实例当前是否处于正常运行状态，如果不是，**k8s 会重启容器**。
+  2. readiness probes：就绪性探测，决定是否将请求转发个给容器，用于检测应用实例是否可以接受请求，如果不能，**k8s不会转发流量**。
+  3. startup probes(v1.16+)：判断容器内的应用是否已经启动成功，如果配置了其就会**先禁止其他的探针**，直到其探针成功为止，一旦成功后不在进行探测
+
+- 第1和第2中探针目前支持三种探测方式：
+
+  1. exec: 在容器内执行一次命令，如果命令执行的退出码为 0，则认为程序正常，否则不正常
+
+     ```yaml
+     ……
+       livenessProbe:
+          exec:
+             command:
+               -	cat
+               -	/tmp/healthy
+     ……
+     ```
+
+  2. tcpSocket：将会禅师访问一个用户容器的端口，如果可以建议连接，则认为程序正常，否则不正常
+
+     ```yaml
+     ……
+        livenessProbe:
+           tcpSocket:
+              port: 8080
+     ……
+     ```
+
+  3. httpGet：调用 web url，如果返回的转发码为 200 和 399 之间，则认为程序正常，否则不正常
+
+     ```yaml
+     ……
+        livenessProbe:
+           httpGet:
+              path: / #URI地址
+              port: 80 #端口号
+              host: 127.0.0.1 #主机地址
+              scheme: HTTP #支持的协议，http或者https
+     ……
+     ```
+
+##### exec 方式
+
+- 创建 `pod-liveness-exec.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-liveness-exec
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+        livenessProbe: # 存活性探针
+          exec:
+            command: ["/bin/cat","/tmp/hello.txt"] # 执行一个查看文件的命令，必须失败，因为根本没有这个文件
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-liveness-exec.yaml
+  ```
+
+- 等待一会查看 pod 的详情信息
+
+  ```shell
+  kubectl describe pod pod-liveness-exec -n dev
+  ```
+
+  ![image-20220523204547917](README.assets/image-20220523204547917.png)
+
+##### tcpSocket 方式
+
+- 创建 `pod-liveness-tcpsocket.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-liveness-tcpsocket
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+        livenessProbe: # 存活性探针
+          tcpSocket:
+            port: 8080 # 尝试访问8080端口，必须失败，因为Pod内部只有一个Nginx容器，而且只是监听了80端口
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-liveness-tcpsocket.yaml
+  ```
+
+- 查看 pod 状态
+
+  ![image-20220523205008387](README.assets/image-20220523205008387.png)
+
+##### httpGet方式
+
+- 创建 `pod-liveness-httpget.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-liveness-httpget
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+        livenessProbe: # 存活性探针
+          httpGet: # 其实就是访问http://127.0.0.1:80/hello
+            port: 80 # 端口号
+            scheme: HTTP # 支持的协议，HTTP或HTTPS
+            path: /hello # URI地址
+            host: 127.0.0.1 # 主机地址
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pod-liveness-httpget.yaml
+  ```
+
+- 等待一会，查看 pod 的运行详情
+
+  ```shell
+  kubectl describe pod pod-liveness-httpget -n dev
+  ```
+
+  ![image-20220524085127692](README.assets/image-20220524085127692.png)
+
+
+
+##### 补充
+
+`livenessProbe` 的其他子属性
+
+```shell
+FIELDS:
+livenessProbe
+    initialDelaySeconds    # 容器启动后等待多少秒执行第一次探测
+    timeoutSeconds      # 探测超时时间。默认1秒，最小1秒
+    periodSeconds       # 执行探测的频率。默认是10秒，最小1秒
+    failureThreshold    # 连续探测失败多少次才被认定为失败。默认是3。最小值是1
+    successThreshold    # 连续探测成功多少次才被认定为成功。默认是1
+```
+
+#### 重启策略
+
+- 在容器探测的过程中，一旦发现了问题，K8S 就会对容器所在的 Pod 进行重启，重启的策略分为 3 种
+
+  - Always：容器失效时，自动重启该容器，默认值
+  - OnFailure：容器终止运行且**退出码不为0**时重启
+  - Never：不论状态如何，都不重启该容器。
+
+- 重启策略适用于 Pod 对象中的**所有容器**，首次需要重启的容器，将在其需要的时候立即进行重启，随后再次重启的操作将由 kubelet 延迟一段时间后进行，其反复的重启操作的延迟时间以此为 10s、20s、40s、80s、160s和300s(最大的延迟时长)
+
+- 创建 `pod-restart-policy.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-restart-policy
+    namespace: dev
+    labels:
+      user: xudaxian
+  spec:
+    containers: # 容器配置
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: nginx-port
+            containerPort: 80
+            protocol: TCP
+        livenessProbe: # 存活性探测
+          httpGet:
+            port: 80
+            path: /hello
+            host: 127.0.0.1
+            scheme: HTTP
+    restartPolicy: Never # 重启策略
+  ```
+
+- 执行
+
+  ```yaml
+  kubectl apply -f pod-restart-policy.yaml
+  ```
+
+- 查看容器运行状态
+
+  ```shell
+  kubectl describe pod pod-restart-policy  -n dev
+  ```
+
+  ![image-20220524090622109](README.assets/image-20220524090622109.png)
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+  ![image-20220524090717858](README.assets/image-20220524090717858.png)
