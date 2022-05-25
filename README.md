@@ -3607,3 +3607,428 @@ kubectl delete -f pc-deployment.yaml
   ```
 
   ![image-20220525145421692](README.assets/image-20220525145421692.png)
+
+#### DaemonSet(DS)
+
+##### 概述
+
+- DS 类型的控制器可以确保集群中的每一台 Node 上都运行一个副本，一般适用于**日志收集，节点监控**等场景
+
+  ![DaemonSet概述.png](README.assets/1609741148871-d058b6a1-733c-4674-9649-00636dded31b.png)
+
+- DaemonSet 控制器的特点：
+
+  - 每项集群中添加一个节点的时候，指定的 Pod 副本你也将添加到该 Node 上
+  - 当 Node 从集群中移除时，Pod 也会被垃圾回收
+
+- DaemonSet 资源清单
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号
+  kind: DaemonSet # 类型
+  metadata: # 元数据
+    name: # 名称
+    namespace: #命名空间
+    labels: #标签
+      controller: daemonset
+      
+  spec: # 详情描述
+    revisionHistoryLimit: 3 # 保留历史版本
+    updateStrategy: # 更新策略
+      type: RollingUpdate # 滚动更新策略
+      rollingUpdate: # 滚动更新
+        maxUnavailable: 1 # 最大不可用状态的Pod的最大值，可用为百分比，也可以为整数
+    selector: # 选择器，通过它指定该控制器管理那些Pod
+      matchLabels: # Labels匹配规则
+        app: nginx-pod
+      matchExpressions: # Expressions匹配规则
+        - key: app
+          operator: In
+          values:
+            - nginx-pod
+            
+    template: # 模板，当副本数量不足时，会根据下面的模板创建Pod模板
+       metadata:
+         labels:
+           app: nginx-pod
+       spec:
+         containers:
+           - name: nginx
+             image: nginx:1.17.1
+             ports:
+               - containerPort: 80
+  ```
+
+##### 使用 DaemonSet
+
+- 创建 `pc-daemonset.yaml` 文件
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号
+  kind: DaemonSet # 类型
+  metadata: # 元数据
+    name: pc-daemonset # 名称
+    namespace: dev #命名空间
+    
+  spec: # 详情描述
+    selector: # 选择器，通过它指定该控制器管理那些Pod
+      matchLabels: # Labels匹配规则
+        app: nginx-pod
+        
+    template: # 模板，当副本数量不足时，会根据下面的模板创建Pod模板
+       metadata:
+         labels:
+           app: nginx-pod
+       spec:
+         containers:
+           - name: nginx
+             image: nginx:1.17.1
+             ports:
+               - containerPort: 80
+  ```
+
+- 执行
+
+- 查看 DaemonSet 运行状态
+
+  ```shell
+  kubectl get ds -n dev
+  ```
+
+  ![image-20220525155938072](README.assets/image-20220525155938072.png)
+
+- 查看对应的 Pod
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+  ![image-20220525160007334](README.assets/image-20220525160041599.png)
+
+- 删除 DS
+
+  ```shell
+  kubectl delete -f pc-daemonset.yaml
+  ```
+
+#### Job
+
+##### 概述
+
+- 作用：批量处理短暂的一次性任务
+- 特点：
+  - 当 Job 创建的 Pod 执行成功结束后，Job 将记录成功的 Pod 数量
+  - 当成功结束的 Pod 达到指定的数量时，Job 将完成执行
+
+![Job概述.png](README.assets/1609741203332-bfaae08e-0be2-4b51-a2cf-188b589a1249.png)
+
+- Job 的资源清单
+
+  ```yaml
+  apiVersion: batch/v1 # 版本号
+  kind: Job # 类型
+  metadata: # 元数据
+    name:  # 名称
+    namespace:  #命名空间
+    labels: # 标签
+      controller: job
+      
+  spec: # 详情描述
+    completions: 1 # 指定Job需要成功运行Pod的总次数，默认为1
+    parallelism: 1 # 指定Job在任一时刻应该并发运行Pod的数量，默认为1
+    activeDeadlineSeconds: 30 # 指定Job可以运行的时间期限，超过时间还没结束，系统将会尝试进行终止
+    backoffLimit: 6 # 指定Job失败后进行重试的次数，默认为6
+    manualSelector: true # 是否可以使用selector选择器选择Pod，默认为false
+    selector: # 选择器，通过它指定该控制器管理那些Pod
+      matchLabels: # Labels匹配规则
+        app: counter-pod
+      matchExpressions: # Expressions匹配规则
+        - key: app
+          operator: In
+          values:
+            - counter-pod
+            
+    template: # 模板，当副本数量不足时，会根据下面的模板创建Pod模板
+       metadata:
+         labels:
+           app: counter-pod
+       spec:
+         restartPolicy: Never # 重启策略只能设置为Never或OnFailure
+         containers:
+           - name: counter
+             image: busybox:1.30
+             command: ["/bin/sh","-c","for i in 9 8 7 6 5 4 3 2 1;do echo $i;sleep 20;done"]
+  ```
+
+  关于模板中 Pod 重启策略的说明
+
+  - **OnFailure**: 则 Job 会在 Pod 出现故障的时候重启容器，而不是创建 Pod，failed 次数不变
+  - **Never**: 则 Job 会在 Pod 出现故障的时候重新创建新的 Pod，并且故障 Pod 不会消失，也不会重启，failed + 1
+  - **Always**：一直重启，表示 Pod 任务会重复执行，这和 Job 的定义冲突，所以不能设置为 Always
+
+##### 使用
+
+1. 编写 `pc-job.yaml` 文件
+
+   ```yaml
+   apiVersion: batch/v1 # 版本号
+   kind: Job # 类型
+   metadata: # 元数据
+     name: pc-job # 名称
+     namespace: dev #命名空间
+     
+   spec: # 详情描述
+     manualSelector: true # 是否可以使用selector选择器选择Pod，默认为false
+     selector: # 选择器，通过它指定该控制器管理那些Pod
+       matchLabels: # Labels匹配规则
+         app: counter-pod
+         
+     template: # 模板，当副本数量不足时，会根据下面的模板创建Pod模板
+       metadata:
+         labels:
+           app: counter-pod
+       spec:
+         restartPolicy: Never # 重启策略只能设置为Never或OnFailure
+         containers:
+           - name: counter
+             image: busybox:1.30
+             command: [ "/bin/sh","-c","for i in 9 8 7 6 5 4 3 2 1;do echo $i;sleep 3;done" ]
+   ```
+
+2. 查看 Job
+
+   ````shell
+   kubectl get job -n dev
+   ````
+
+    ![image-20220525201252824](README.assets/image-20220525201252824.png)
+
+3. 查看 Pod
+
+   ```shell
+   kubectl get pod -n dev
+   ```
+
+   ![image-20220525201323087](README.assets/image-20220525201323087.png)
+
+   在 Pod 工作成功之后，Job 的 Completions 就会 + 1
+
+4. 删除 Pod
+
+   ```shell
+   kubectl delete -f pc-job.yaml
+   ```
+
+#### CronJob(CJ)
+
+##### 概述
+
+- CronJob 控制器以 **Job控制器为其管控对象**，并借助它管理 Pod 资源对象
+
+- Job控制器定义的作业任务在其控制器资源创建之后便会立即执行，但 CronJob 可以类似于 Linux 操作系统的周期性任务作业计划的方式控制 Job 运行时间点以及重复运行的方式(CronJob 可以在特定的时间点去反复的执行 Job 任务)
+
+   ![CronJob概述.png](README.assets/1609741289487-00329c0d-fe82-4113-9f3a-528a67970ed1.png)
+
+- CronJob 的资源清单
+
+  ```yaml
+  apiVersion: batch/v1beta1 # 版本号
+  kind: CronJob # 类型
+  metadata: # 元数据
+    name:  # 名称
+    namespace:  #命名空间
+    labels:
+      controller: cronjob
+      
+  spec: # 详情描述
+    schedule: # cron格式的作业调度运行时间点，用于控制任务任务时间执行
+    concurrencyPolicy: # 并发执行策略
+    failedJobsHistoryLimit: # 为失败的任务执行保留的历史记录数，默认为1
+    successfulJobsHistoryLimit: # 为成功的任务执行保留的历史记录数，默认为3
+    
+    jobTemplate: # job控制器模板，用于为cronjob控制器生成job对象，下面其实就是job的定义
+      metadata: {}
+      spec:
+        completions: 1 # 指定Job需要成功运行Pod的总次数，默认为1
+        parallelism: 1 # 指定Job在任一时刻应该并发运行Pod的数量，默认为1
+        activeDeadlineSeconds: 30 # 指定Job可以运行的时间期限，超过时间还没结束，系统将会尝试进行终止
+        backoffLimit: 6 # 指定Job失败后进行重试的次数，默认为6
+        template: # 模板，当副本数量不足时，会根据下面的模板创建Pod模板
+          spec:
+            restartPolicy: Never # 重启策略只能设置为Never或OnFailure
+            containers:
+              - name: counter
+                image: busybox:1.30
+                command: [ "/bin/sh","-c","for i in 9 8 7 6 5 4 3 2 1;do echo $i;sleep 20;done" ]
+  ```
+
+  - schedule：cron表达式，用于指定任务的执行时间。
+
+    - */1  *  *  *  *：表示分钟  小时  日  月份  星期。
+
+    - 分钟的值从0到59。
+
+    - 小时的值从0到23。
+
+    - 日的值从1到31。
+
+    - 月的值从1到12。
+
+    - 星期的值从0到6，0表示星期日。
+
+    - 多个时间可以用逗号隔开，范围可以用连字符给出：* 可以作为通配符，/表示每...
+
+  - concurrencyPolicy：并发执行策略
+
+    - **Allow**：运行Job并发运行（默认）。
+
+    - **Forbid**：禁止并发运行，如果上一次运行尚未完成，则跳过下一次运行。
+
+    - **Replace**：替换，取消当前正在运行的作业并使用新作业替换它。
+
+##### 使用
+
+- 创建 `pc-cronjob.yaml`
+
+  ```yaml
+  apiVersion: batch/v1beta1 # 版本号
+  kind: CronJob # 类型
+  metadata: # 元数据
+    name: pc-cronjob # 名称
+    namespace: dev  #命名空间
+    
+  spec: # 详情描述
+    schedule: "*/1 * * * * " # cron格式的作业调度运行时间点，用于控制任务任务时间执行
+    
+    jobTemplate: # job控制器模板，用于为cronjob控制器生成job对象，下面其实就是job的定义
+      metadata: {}
+      spec:
+        template: # 模板，当副本数量不足时，会根据下面的模板创建Pod模板
+          spec:
+            restartPolicy: Never # 重启策略只能设置为Never或OnFailure
+            containers:
+              - name: counter
+                image: busybox:1.30
+                command: [ "/bin/sh","-c","for i in 9 8 7 6 5 4 3 2 1;do echo $i;sleep 2;done" ]
+  ```
+
+- 查看 CJ
+
+  ```shell
+  kubectl get cj -n dev
+  ```
+
+  ![image-20220525202748705](README.assets/image-20220525202748705.png)
+
+- 查看 Job
+
+  ```shell
+  kubectl get job -n dev
+  ```
+
+   ![image-20220525202817017](README.assets/image-20220525202817017.png)
+
+- 查看 Pod
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+  ![image-20220525202835863](README.assets/image-20220525202835863.png)
+
+- 删除 CJ
+
+  ```shell
+  kubectl delete cj pc-cronjob  -n dev
+  ```
+
+#### StatefulSet
+
+##### 概述
+
+- 无状态应用(Deployment)
+  - 认为 Pod 都是一样的
+  - 没有顺序要求
+  - 不用考虑在哪个 Node 节点上运行
+  - 随意的进行伸缩和扩展
+- 有状态应用(StatefulSet)
+  - 有顺序的要求
+  - 每个 Pod 都是不一样
+  - 需要考虑在哪个 Node 节点上运行
+  - 需要按照顺序进行伸缩和扩展
+  - 每个 Pod 都是独立的，保持 Pod 的启动顺序和唯一性
+- StatefulSet 是 K8S 提供的**管理有状态应用的负载管理控制器**
+- StatefulSet 部署需要 **HeadLinessService**(无头服务)
+  - 在使用 Deloyment 时，每一个 Pod 名称都没有顺序，是随机字符串，因此 Pod 名称是无序的，但是在 StatefulSet 中要求是有序的，每一个 Pod 不能被随机取代(即使重建之后 Pod 名称也是一样的)
+  - 但由于 Pod IP 是变化的，所以必须要用 Pod 名称来识别，Pod 名称是 Pod 唯一性的标识，必须持久稳定有效，而通过无头服务，就可以给一个 Pod 一个唯一的名称
+- 一般 StatefulSet 可以用来部署 RabbitMQ/Zookeeper/Mysql/Eureka集群等
+
+##### 使用
+
+- 创建 `pc-stateful.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: service-headliness
+    namespace: dev
+  spec:
+    selector:
+      app: nginx-pod
+    clusterIP: None # 将clusterIP设置为None，即可创建headliness Service
+    type: ClusterIP
+    ports:
+      - port: 80 # Service的端口
+        targetPort: 80 # Pod的端口
+  ---
+  
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    name: pc-statefulset
+    namespace: dev
+  spec:
+    replicas: 3
+    serviceName: service-headliness
+    selector:
+      matchLabels:
+        app: nginx-pod
+    template:
+      metadata:
+        labels:
+          app: nginx-pod
+      spec:
+        containers:
+          - name: nginx
+            image: nginx:1.17.1
+            ports:
+              - containerPort: 80
+  ```
+
+  通过将 **clusterIP** 设置为 **None** 即可实现 **HeadLinessService**（无头服务）
+
+- 查看 statefulSet
+
+  ```yaml
+  kubectl get statefulset pc-statefulset -n dev -o wide
+  ```
+
+   ![image-20220525215557129](README.assets/image-20220525215557129.png)
+
+- 查看 Pod
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+   ![image-20220525215626285](README.assets/image-20220525215626285.png)
+
+- 删除 statefulSet
+
+  ```shell
+  kubectl delete -f pc-stateful.yaml
+  ```
+
+
+
