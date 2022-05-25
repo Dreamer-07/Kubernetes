@@ -2929,5 +2929,514 @@ livenessProbe
 
 ### Pod 控制器
 
+#### 介绍
+
+- 在 K8S 中，按照 Pod 的创建方式可以将其分为两种
+
+  1. 自主式 Pod： K8S 直接创建出来的 Pod，这种在 Pod 删除后就莫得了，也不会重建
+  2. 控制器创建 Pod：通过 Pod 控制器创建的 Pod，在 Pod 被删除后还会自动重建
+
+- 作用：是管理 Pod 的中间层，使用 Pod 控制器之后，我们只需要告诉 Pod 控制器需要多少个什么样的 Pod 即可，就会创建出满足条件的 Pod 并确保每一个 Pod 都处于用户期望的状态；如果 Pod 在运行中出现故障，控制器会基于策略重启/重建 Pod
+
+- 分类：
+
+  - ReplicationController：比较原始的Pod控制器，已经被废弃，由ReplicaSet替代。
+
+  - ReplicaSet：保证指定数量的Pod运行，并支持Pod数量变更，镜像版本变更。
+
+  - **Deployment**：通过控制ReplicaSet来控制Pod，并支持滚动升级、版本回退。
+
+  - Horizontal Pod Autoscaler：可以根据集群负载自动调整Pod的数量，实现削峰填谷。
+
+  - DaemonSet：在集群中的指定Node上都运行一个副本，一般用于守护进程类的任务。
+
+  - Job：它创建出来的Pod只要完成任务就立即退出，用于执行一次性任务。
+
+  - CronJob：它创建的Pod会周期性的执行，用于执行周期性的任务。
+
+  - StatefulSet：管理有状态的应用
+
+#### ReplicaSet(RS)
+
+##### 概述
+
+- 作用：
+  1. 保证一定数量的 Pod 能够正常运行
+  2. 会持续监听这些 Pod 的运行状态，一旦 Pod 发生故障，就会重启/重建
+  3. 支持对 Pod 的数量进行扩缩容和版本镜像的升级
+
+![ReplicaSet.png](README.assets/1609740251668-6a716813-d34b-46e9-8abd-275315c27636.png)
+
+- ReplicaSet 的资源清单文件
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号 
+  kind: ReplicaSet # 类型 
+  metadata: # 元数据 
+    name: # rs名称
+    namespace: # 所属命名空间 
+    labels: #标签 
+      controller: rs 
+      
+  spec: # 详情描述 
+    replicas: 3 # 副本数量 
+    selector: # 选择器，通过它指定该控制器管理哪些po
+      matchLabels: # Labels匹配规则 
+        app: nginx-pod 
+      matchExpressions: # Expressions匹配规则 
+        - {key: app, operator: In, values: [nginx-pod]} 
+        
+  template: # 模板，当副本数量不足时，会根据下面的模板创建pod副本 
+    metadata: 
+      labels: # 标签
+        app: nginx-pod 
+    spec: 
+      containers: 
+        - name: nginx 
+          image: nginx:1.17.1 
+          ports: 
+          - containerPort: 80
+  ```
+
+  - `replicas`: 指定副本数量，就是 rs 创建出来的 Pod 数量(默认为 1)
+  - `selector`: 选择器，负责建立 Pod 与 rs 之间的联系，采用 Label Selector 机制
+  - `template`: 模板，就是控制器创建 Pod 时使用的配置
+
+##### 创建 RS
+
+- 创建 `pc-replicaset.yaml`
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号
+  kind: ReplicaSet # 类型
+  metadata: # 元数据
+    name: pc-replicaset # rs名称
+    namespace: dev # 命名类型
+  spec: # 详细描述
+    replicas: 3 # 副本数量
+    selector: # 选择器，通过它指定该控制器可以管理哪些Pod
+      matchLabels: # Labels匹配规则
+        app: nginx-pod
+    template: # 模块 当副本数据不足的时候，会根据下面的模板创建Pod副本
+      metadata:
+        labels:
+          app: nginx-pod
+      spec:
+        containers:
+          - name: nginx # 容器名称
+            image: nginx:1.17.1 # 容器需要的镜像地址
+            ports:
+              - containerPort: 80 # 容器所监听的端口
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pc-replicaset.yaml
+  ```
+
+- 查看 rs 状态
+
+  ```shell
+  kubectl get rs -n dev -o wide
+  ```
+
+  ![image-20220524202342219](README.assets/image-20220524202342219.png)
+
+  - desired: 期望运行的副本数量
+  - corrent: 当前的副本数量
+  - ready: 已经准保好提供的副本数量
+
+- 查看 pod
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+  ![image-20220524202514460](README.assets/image-20220524202514460.png)
+
+  由控制器创建的 Pod 都是基于 pc 的名称加上--随机码
+
+##### 扩缩容
+
+- 编辑文件
+
+  ```shell
+  kubectl edit rs pc-replicaset -n dev
+  ```
+
+  ![image-20220524202715810](README.assets/image-20220524202715810.png)
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+   ![image-20220524202750134](README.assets/image-20220524202750134.png)
+
+- 使用 `scale` 命令实现
+
+  ```shell
+  kubectl scale rs pc-replicaset --replicas=2 -n dev
+  ```
+
+  ```shell
+  kubectl get pod -n dev
+  ```
+
+   ![image-20220524202934454](README.assets/image-20220524202934454.png)
+
+##### 镜像升级
+
+- 编辑配置文件
+
+  ```shell
+  kubectl edit rs pc-replicaset -n dev
+  ```
+
+   ![image-20220524203135176](README.assets/image-20220524203135176.png)
+
+  ```shell
+  kubectl get rs pc-replicaset -n dev -o wide
+  ```
+
+  ![image-20220524203547326](README.assets/image-20220524203547326.png)
+
+- 命令式
+
+  ```shell
+  kubectl set image rs pc-replicaser nginx=nginx:1.17.1 -n dev
+  ```
+
+  ```shell
+  kubectl get rs pc-replicaser -n dev -o wide
+  ```
+
+  ![image-20220524203937692](README.assets/image-20220524203937692.png)
+
+> 注意：修改镜像后不会影响原有 Pod，只有新建 Pod 才能使用该配置
+
+##### 删除 RS
+
+> 在kubernetes删除ReplicaSet前，会将ReplicaSet的replicas调整为0，等到所有的Pod被删除后，再执行ReplicaSet对象的删除
+
+1. 使用命令式对象管理
+
+   ```shell
+   kubectl delete rs pc-replicaser -n dev
+   ```
+
+   如果希望仅删除 RS 并保留 Pod，添加 `--cascade=false`
+
+   ```shell
+   kubectl delete rs pc-replicaser -n dev --cascade=false
+   ```
+
+2. 使用 yaml 直接删除(推荐√)
+
+   ```shell
+   kubectl delete -f pc-replicaset.yaml
+   ```
+
+#### Deployment
+
+##### 概述
+
+- Deploy 不会直接管理 Pod，而是通过管理 **ReplicaSet** 来间接管理 Pod
+
+   ![Deployment概述.png](README.assets/1609740371588-1b8945cf-845b-4182-85a5-499515189064.png)
+
+- 主要功能：
+
+  1. 支持 RS 的所有功能
+  2. 支持发布的**停止，继续**
+  3. 支持版本滚动更新和版本回退
+
+- Deployment 的资源清单
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号 
+  kind: Deployment # 类型 
+  metadata: # 元数据 
+    name: # rs名称 
+    namespace: # 所属命名空间 
+    labels: #标签 
+      controller: deploy 
+  spec: # 详情描述 
+    replicas: 3 # 副本数量 
+    revisionHistoryLimit: 3 # 保留历史版本，默认为10 
+    paused: false # 暂停部署，默认是false 
+    progressDeadlineSeconds: 600 # 部署超时时间（s），默认是600 
+    strategy: # 策略 
+      type: RollingUpdate # 滚动更新策略 
+      rollingUpdate: # 滚动更新 
+        maxSurge: 30% # 最大额外可以存在的副本数，可以为百分比，也可以为整数 maxUnavailable: 30% # 最大不可用状态的    Pod 的最大值，可以为百分比，也可以为整数 
+    selector: # 选择器，通过它指定该控制器管理哪些pod 
+      matchLabels: # Labels匹配规则 
+        app: nginx-pod 
+      matchExpressions: # Expressions匹配规则 
+        - {key: app, operator: In, values: [nginx-pod]} 
+    template: # 模板，当副本数量不足时，会根据下面的模板创建pod副本 
+      metadata: 
+        labels: 
+          app: nginx-pod 
+      spec: 
+        containers: 
+        - name: nginx 
+          image: nginx:1.17.1 
+          ports: 
+          - containerPort: 80
+  ```
+
+##### 创建 Deploy
+
+- 创建 `pc-deployment.yaml`
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号
+  kind: Deployment # 类型
+  metadata: # 元数据
+    name: pc-deployment # deployment的名称
+    namespace: dev # 命名类型
+  spec: # 详细描述
+    replicas: 3 # 副本数量
+    selector: # 选择器，通过它指定该控制器可以管理哪些Pod
+      matchLabels: # Labels 匹配规则
+        app: nginx-pod
+    template: # 模块 当副本数据不足的时候，会根据下面的模板创建Pod副本
+      metadata:
+        labels:
+          app: nginx-pod
+      spec:
+        containers:
+          - name: nginx # 容器名称
+            image: nginx:1.17.1 # 容器需要的镜像地址
+            ports:
+              - containerPort: 80 # 容器所监听的端口
+  ```
+
+- 执行
+
+  ```shell
+  kubectl apply -f pc-deployment.yaml
+  ```
+
+- 查看对应的 Deploy,RS,Pod 的状态
+
+  ```shell
+  kubectl get deploy,rs,pod -n dev
+  ```
+
+  ![image-20220525093054687](README.assets/image-20220525093054687.png)
+
+
+
+##### 扩缩容
+
+1. 使用 `scale` 实现扩缩容
+
+   ```shell
+   kubectl scale deploy pc-deployment --replicas=5 -n dev
+   ```
+
+   ```shell
+   kubectl get pod -n dev
+   ```
+
+   ![image-20220525093232878](README.assets/image-20220525093232878.png)
+
+2. 编辑 deploy 配置文件
+
+   ```shell
+   kubectl edit deployment pc-deployment  -n dev
+   ```
+
+   ![image-20220525093420689](README.assets/image-20220525093420689.png)
+
+   ```shell
+   kubectl get pod -n dev
+   ```
+
+   ![image-20220525093453316](README.assets/image-20220525093453316.png)
+
+##### 镜像更新
+
+- 概述：Deploy 支持两种镜像更新的策略：`重建更新` 和 `滚动更新(默认)`，可以通过 `strategy` 进行配置
+
+  ```yaml
+  strategy: #指定新的Pod替代旧的Pod的策略，支持两个属性
+    type: #指定策略类型，支持两种策略
+      Recreate：# 在创建出新的Pod之前会先杀掉所有已经存在的Pod
+      RollingUpdate：#滚动更新，就是杀死一部分，就启动一部分，在更新过程中，存在两个版本的Pod
+    rollingUpdate：# 当type为RollingUpdate的时候生效，用于为rollingUpdate设置参数，支持两个属性：
+      maxUnavailable：#用来指定在升级过程中不可用的Pod的最大数量，默认为25%。
+      maxSurge： # 用来指定在升级过程中可以超过期望的Pod的最大数量，默认为25%。
+  ```
+
+- 重建更新：
+
+  1. 编辑 `pc-deployment.yaml`
+
+     ```yaml
+     ...
+     spec: # 详细描述
+       replicas: 3 # 副本数量
+       strategy: # 镜像更新策略
+         type: Recreate # Recreate：在创建出新的Pod之前会先杀掉所有已经存在的Pod
+     ...
+     ```
+
+  2. 执行
+
+     ```shell
+     kubectl apply -f pc-deployment.yaml
+     ```
+
+  3. 多打开一个窗口，监听 pod 的变化
+
+     ```shell
+     kubectl get pod -n dev -w
+     ```
+
+     ![image-20220525095008223](README.assets/image-20220525095008223.png)
+
+  4. 镜像升级
+
+     ```shell
+     kubectl set image deploy pc-deployment nginx=nginx:1.17.2  -n dev
+     ```
+
+     观察 pod 的变化
+
+     ![image-20220525095159222](README.assets/image-20220525095159222.png)
+
+- 滚动更新：
+
+  1. 编辑 `pc-deployment.yaml`
+
+     ```yaml
+     ...
+     spec: # 详细描述
+       ...
+       strategy: # 镜像更新策略
+         type: RollingUpdate # RollingUpdate：滚动更新，就是杀死一部分，就启动一部分，在更新过程中，存在两个版本的Pod
+         rollingUpdate:
+           maxUnavailable: 25%
+           maxSurge: 25%
+     ...
+     ```
+
+  2. 执行
+
+  3. 打开一个窗口，监听 pod 的变化
+
+  4. 更新镜像
+
+     ```shell
+     kubectl set image deploy pc-deployment nginx=nginx:1.17.3  -n dev
+     ```
+
+  5. 查看 Pod 的变化
+
+     ![image-20220525100005256](README.assets/image-20220525100005256.png)
+
+     - 先启动一个新版本的 Pod，如果没有问题就删除一个老版本的 Pod
+     - 在启动一个新版本的 Pod，如果没有问题就删除一个老版本的 Pod，以此类推，直到所有的 Pod 都完成升级
+
+     ![滚动更新过程.png](README.assets/1609740542138-003f8297-63d8-4f1d-bc4e-8abccb2915dd.png)
+
+##### 版本回退
+
+- 查看镜像更新后的 rs 状态
+
+  ```shell
+  kubectl get rs -n dev
+  ```
+
+  ![image-20220525100243183](README.assets/image-20220525100243183.png)
+
+  **原来的 rs 依然存在，只是 Pod 的数量变为 0，而后又产生一个 rs，Pod 数量为 3**(Deploy 完成**版本回退**的关键)
+
+- Deploy 支持版本升级过程中的在**暂停，继续以及回退**等功能
+
+  ```shell
+  # 版本升级相关功能
+  kubetl rollout 参数 deploy xx  # 支持下面的选择
+  # status 显示当前升级的状态
+  # history 显示升级历史记录
+  # pause 暂停版本升级过程
+  # resume 继续已经暂停的版本升级过程
+  # restart 重启版本升级过程
+  # undo 回滚到上一级版本 （可以使用--to-revision回滚到指定的版本）
+  ```
+
+- 查看当前升级版本的状态
+
+  ```shell
+  kubectl rollout status deployment pc-deployment -n dev
+  ```
+
+   ![image-20220525100525586](README.assets/image-20220525100525586.png)
+
+- 查看升级历史记录
+
+  ```shell
+  kubectl rollout history deploy pc-deployment -n dev
+  ```
+
+  ![image-20220525100945457](README.assets/image-20220525100945457.png)
+
+- 版本回退
+
+  监听 rs 的变化
+
+  ```shell
+  kubectl get rs -n dev -w
+  ```
+
+  ```shell
+  # 可以使用-to-revision=1回退到指定版本，如果省略这个选项，就是回退到上个版本
+  kubectl rollout undo deployment pc-deployment --to-revision=2 -n dev
+  ```
+
+  ![image-20220525101533011](README.assets/image-20220525101533011.png)
+
+> Deploy 之所以能够实现版本降级的回退，主要是记录不同历史的 ReplicaSet 来实现的，只需要将当前版本的 Pod 数量降为 0，恢复目标版本的 Pod 数量即可
+
+##### 金丝雀发布
+
+- 灰度发布：在升级版本时先只升级小部分产品，让一些用户可以先访问新产品特性，如果没有问题，再将剩下的产品进行升级，如果有问题就及时回滚
+
+- K8S Deploy 支持对更新过程的控制(暂停/继续)，当我们对一批 Pod 资源进行更新时通过及时暂停，来实现灰度发布
+
+  ```shell
+  kubectl set image deploy pc-deployment nginx=nginx:1.17.1  -n dev && kubectl rollout pause deployment pc-deployment -n dev
+  ```
+
+- 观察更新状态
+
+  ```shell
+  kubectl rollout status deployment pc-deployment  -n dev
+  ```
+
+  ![image-20220525125617231](README.assets/image-20220525125617231.png)
+
+- 恢复更新
+
+  ```shell
+  kubetl rollout resume deployment pc-deployment  -n dev
+  ```
+
+##### 删除 Deployment
+
+```shell
+kubectl delete -f pc-deployment.yaml
+```
+
+其中的 Rs 和 Pod 也会被一起删除
+
+
+
+
+
 
 
