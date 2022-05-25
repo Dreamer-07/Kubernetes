@@ -1294,7 +1294,7 @@ scp -r $HOME/.kube node节点ip:$HOME
   ```
 
   ```shell
-  kubectl expose deploy nginx --name=svc-deploy-nginx --type=ClusterIp --port=80 --target-port=80 -n dev
+  kubectl expose deploy nginx --name=svc-deploy-nginx --type=ClusterI --port=80 --target-port=80 -n dev
   ```
 
 - 查看 Service
@@ -3436,7 +3436,174 @@ kubectl delete -f pc-deployment.yaml
 
 
 
+#### Horizontal Pod Autoscaler (HPA)
+
+##### 概述
+
+- Deploy/RS 可以通过 `kuectl scale` 手动实现对 Pod 的扩缩容
+- 但 K8S 还有另外一种实现扩缩容的方式：**通过检测的 Pod 的使用情况，实现 Pod 数量的自动调整** --> HPA
+- HPA 可以获取每个 Pod 的利用率，然后和 HPA 中定义的指标进行对比，同时计算出需要伸缩的具体值，最后实现 Pod 数量的调整
+- 其实 HPA 和 Deploy 一样，也是 K8S 的资源对象，通过**追踪分析目标的 Pod 的负载变化情况，来确定是否需要针对性的调整目标 Pod 的副本数**
+
+![HPA概述.png](README.assets/1609740693684-00f73208-4ae1-4576-bcba-94f345027234.png)
+
+##### 安装 metrics-server
+
+- 作用：收集集群中资源使用情况
+
+- 下载
+
+  ```shell
+  # 获取压缩包
+  wget https://github.com/kubernetes-sigs/metrics-server/archive/v0.3.6.tar.gz
+  # 解压
+  tar -zxvf v0.3.6.tar.gz
+  # 进入目录修改配置文件
+  cd metrics-server-0.3.6/deploy/1.8+/
+  vim metrics-server-deployment.yaml
+  ```
+
+  修改的内容
+
+  ```yaml
+  按图中添加下面选项
+  hostNetwork: true
+  image: registry.cn-hangzhou.aliyuncs.com/google_containers/metrics-server-amd64:v0.3.6 
+  args:
+    - --kubelet-insecure-tls 
+    - --kubelet-preferred-address-types=InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP
+  ```
+
+   ![修改metrics-server-deployment.yaml文件.png](README.assets/1609740710229-1a50c119-aecc-4341-a581-69ad0508b1b1.png)
+
+- 创建 `metrics-server`
+
+  ```yaml
+  kubectl apply -f ./
+  ```
+
+  ![image-20220525134205839](README.assets/image-20220525134205839.png)
+
+- 查看 `metrics-server` 生成的 Pod
+
+  ```shell
+  kubectl get pod -n kube-system
+  ```
+
+  ![image-20220525134317375](README.assets/image-20220525134317375.png)
+
+- 查看指定资源的使用情况
+
+  ```shell
+  kubectl top node
+  ```
+
+  ![image-20220525134527943](README.assets/image-20220525134527943.png)
+
+  ```shell
+  kubectl top pod [-n 命名空间]
+  ```
+
+  ![image-20220525134601268](README.assets/image-20220525134601268.png)
+
+##### 准备 Deploy & Service
+
+- 创建 `pc-hpa-deploy-nginx.yaml`
+
+  ```yaml
+  apiVersion: apps/v1 # 版本号
+  kind: Deployment # 类型
+  metadata: # 元数据
+    name: pc-hpa-deploy-nginx # deployment的名称
+    namespace: dev # 命名类型
+  spec: # 详细描述
+    selector: # 选择器，通过它指定该控制器可以管理哪些Pod
+      matchLabels: # Labels匹配规则
+        app: nginx-pod
+    template: # 模块 当副本数据不足的时候，会根据下面的模板创建Pod副本
+      metadata:
+        labels:kubectl get svc -n dev
+          app: nginx-pod
+      spec:
+        containers:
+          - name: nginx # 容器名称
+            image: nginx:1.17.1 # 容器需要的镜像地址
+            ports:
+              - containerPort: 80 # 容器所监听的端口
+            resources: # 资源限制
+              requests:
+                cpu: "100m" # 100m表示100millicpu，即0.1个CPU
+  ```
+
+- 创建 `service`
+
+  ```shell
+  kubectl expose deployment pc-hpa-deploy-nginx --name=nginx --type=NodePort --port=80 --target-port=80 -n dev
+  ```
+
+  ```shell
+  kubectl get svc -n dev
+  ```
+
+  ![image-20220525135519143](README.assets/image-20220525135519143.png)
 
 
 
+##### 创建  HPA
 
+- 创建 `pc-hpa.yaml`
+
+  ```yaml
+  apiVersion: autoscaling/v1 # 版本号
+  kind: HorizontalPodAutoscaler # 类型
+  metadata: # 元数据
+    name: pc-hpa # deployment的名称
+    namespace: dev # 命名类型
+  spec:
+    minReplicas: 1 # 最小Pod数量
+    maxReplicas: 10 # 最大Pod数量
+    targetCPUUtilizationPercentage: 3 # CPU使用率指标,这里以 3% 只是为了方便测试
+    scaleTargetRef:  # 指定要控制的 Deploy 的信息
+      apiVersion: apps/v1
+      kind: Deployment
+      name: pc-hpa-deploy-nginx
+  ```
+
+- 创建 hpa
+
+  ```yaml
+  kubectl create -f pc-hpa.yaml
+  ```
+
+- 查看 hpa
+
+  ```shell
+  kubectl get hpa -n dev
+  ```
+
+  ![image-20220525143349075](README.assets/image-20220525143349075.png)
+
+##### 测试
+
+- 使用 Jmeter/Postman 对 service 地址进行压测，通过控制器查看各资源的变化
+
+- 监控 hpa,deploy,pod(
+
+  ```shell
+  kubectl get hpa -n dev -w
+  ```
+
+  ![image-20220525145552948](README.assets/image-20220525145552948.png)
+
+  ```shell
+  #在 HPA 完成扩容后，即使压力变小了，也会等待一段时间(默认为5分组)再进行缩容
+  kubectl get deploy -n dev -w
+  ```
+
+   ![image-20220525145911079](README.assets/image-20220525145911079.png)
+
+  ```shell
+  kubectl get pod -n dev -w
+  ```
+
+  ![image-20220525145421692](README.assets/image-20220525145421692.png)
