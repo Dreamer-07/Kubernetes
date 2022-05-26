@@ -2927,9 +2927,9 @@ livenessProbe
 
 #### 服务质量 Qos
 
-### Pod 控制器
+## Pod 控制器
 
-#### 介绍
+### 介绍
 
 - 在 K8S 中，按照 Pod 的创建方式可以将其分为两种
 
@@ -2956,9 +2956,9 @@ livenessProbe
 
   - StatefulSet：管理有状态的应用
 
-#### ReplicaSet(RS)
+### ReplicaSet(RS)
 
-##### 概述
+#### 概述
 
 - 作用：
   1. 保证一定数量的 Pod 能够正常运行
@@ -3002,7 +3002,7 @@ livenessProbe
   - `selector`: 选择器，负责建立 Pod 与 rs 之间的联系，采用 Label Selector 机制
   - `template`: 模板，就是控制器创建 Pod 时使用的配置
 
-##### 创建 RS
+#### 创建 RS
 
 - 创建 `pc-replicaset.yaml`
 
@@ -3057,7 +3057,7 @@ livenessProbe
 
   由控制器创建的 Pod 都是基于 pc 的名称加上--随机码
 
-##### 扩缩容
+#### 扩缩容
 
 - 编辑文件
 
@@ -3085,7 +3085,7 @@ livenessProbe
 
    ![image-20220524202934454](README.assets/image-20220524202934454.png)
 
-##### 镜像升级
+#### 镜像升级
 
 - 编辑配置文件
 
@@ -3115,7 +3115,7 @@ livenessProbe
 
 > 注意：修改镜像后不会影响原有 Pod，只有新建 Pod 才能使用该配置
 
-##### 删除 RS
+#### 删除 RS
 
 > 在kubernetes删除ReplicaSet前，会将ReplicaSet的replicas调整为0，等到所有的Pod被删除后，再执行ReplicaSet对象的删除
 
@@ -3137,9 +3137,9 @@ livenessProbe
    kubectl delete -f pc-replicaset.yaml
    ```
 
-#### Deployment
+### Deployment
 
-##### 概述
+#### 概述
 
 - Deploy 不会直接管理 Pod，而是通过管理 **ReplicaSet** 来间接管理 Pod
 
@@ -3187,7 +3187,7 @@ livenessProbe
           - containerPort: 80
   ```
 
-##### 创建 Deploy
+#### 创建 Deploy
 
 - 创建 `pc-deployment.yaml`
 
@@ -3230,7 +3230,7 @@ livenessProbe
 
 
 
-##### 扩缩容
+#### 扩缩容
 
 1. 使用 `scale` 实现扩缩容
 
@@ -3258,7 +3258,7 @@ livenessProbe
 
    ![image-20220525093453316](README.assets/image-20220525093453316.png)
 
-##### 镜像更新
+#### 镜像更新
 
 - 概述：Deploy 支持两种镜像更新的策略：`重建更新` 和 `滚动更新(默认)`，可以通过 `strategy` 进行配置
 
@@ -3344,7 +3344,7 @@ livenessProbe
 
      ![滚动更新过程.png](README.assets/1609740542138-003f8297-63d8-4f1d-bc4e-8abccb2915dd.png)
 
-##### 版本回退
+#### 版本回退
 
 - 查看镜像更新后的 rs 状态
 
@@ -3402,7 +3402,7 @@ livenessProbe
 
 > Deploy 之所以能够实现版本降级的回退，主要是记录不同历史的 ReplicaSet 来实现的，只需要将当前版本的 Pod 数量降为 0，恢复目标版本的 Pod 数量即可
 
-##### 金丝雀发布
+#### 金丝雀发布
 
 - 灰度发布：在升级版本时先只升级小部分产品，让一些用户可以先访问新产品特性，如果没有问题，再将剩下的产品进行升级，如果有问题就及时回滚
 
@@ -3426,7 +3426,7 @@ livenessProbe
   kubetl rollout resume deployment pc-deployment  -n dev
   ```
 
-##### 删除 Deployment
+#### 删除 Deployment
 
 ```shell
 kubectl delete -f pc-deployment.yaml
@@ -3436,9 +3436,9 @@ kubectl delete -f pc-deployment.yaml
 
 
 
-#### Horizontal Pod Autoscaler (HPA)
+### Horizontal Pod Autoscaler (HPA)
 
-##### 概述
+#### 概述
 
 - Deploy/RS 可以通过 `kuectl scale` 手动实现对 Pod 的扩缩容
 - 但 K8S 还有另外一种实现扩缩容的方式：**通过检测的 Pod 的使用情况，实现 Pod 数量的自动调整** --> HPA
@@ -3447,7 +3447,7 @@ kubectl delete -f pc-deployment.yaml
 
 ![HPA概述.png](README.assets/1609740693684-00f73208-4ae1-4576-bcba-94f345027234.png)
 
-##### 安装 metrics-server
+#### 安装 metrics-server
 
 - 作用：收集集群中资源使用情况
 
@@ -3506,7 +3506,7 @@ kubectl delete -f pc-deployment.yaml
 
   ![image-20220525134601268](README.assets/image-20220525134601268.png)
 
-##### 准备 Deploy & Service
+#### 准备 Deploy & Service
 
 - 创建 `pc-hpa-deploy-nginx.yaml`
 
@@ -3549,7 +3549,7 @@ kubectl delete -f pc-deployment.yaml
 
 
 
-##### 创建  HPA
+#### 创建  HPA
 
 - 创建 `pc-hpa.yaml`
 
@@ -3583,7 +3583,7 @@ kubectl delete -f pc-deployment.yaml
 
   ![image-20220525143349075](README.assets/image-20220525143349075.png)
 
-##### 测试
+#### 测试
 
 - 使用 Jmeter/Postman 对 service 地址进行压测，通过控制器查看各资源的变化
 
@@ -3608,9 +3608,9 @@ kubectl delete -f pc-deployment.yaml
 
   ![image-20220525145421692](README.assets/image-20220525145421692.png)
 
-#### DaemonSet(DS)
+### DaemonSet(DS)
 
-##### 概述
+#### 概述
 
 - DS 类型的控制器可以确保集群中的每一台 Node 上都运行一个副本，一般适用于**日志收集，节点监控**等场景
 
@@ -3659,7 +3659,7 @@ kubectl delete -f pc-deployment.yaml
                - containerPort: 80
   ```
 
-##### 使用 DaemonSet
+#### 使用 DaemonSet
 
 - 创建 `pc-daemonset.yaml` 文件
 
@@ -3711,9 +3711,9 @@ kubectl delete -f pc-deployment.yaml
   kubectl delete -f pc-daemonset.yaml
   ```
 
-#### Job
+### Job
 
-##### 概述
+#### 概述
 
 - 作用：批量处理短暂的一次性任务
 - 特点：
@@ -3766,7 +3766,7 @@ kubectl delete -f pc-deployment.yaml
   - **Never**: 则 Job 会在 Pod 出现故障的时候重新创建新的 Pod，并且故障 Pod 不会消失，也不会重启，failed + 1
   - **Always**：一直重启，表示 Pod 任务会重复执行，这和 Job 的定义冲突，所以不能设置为 Always
 
-##### 使用
+#### 使用
 
 1. 编写 `pc-job.yaml` 文件
 
@@ -3819,9 +3819,9 @@ kubectl delete -f pc-deployment.yaml
    kubectl delete -f pc-job.yaml
    ```
 
-#### CronJob(CJ)
+### CronJob(CJ)
 
-##### 概述
+#### 概述
 
 - CronJob 控制器以 **Job控制器为其管控对象**，并借助它管理 Pod 资源对象
 
@@ -3886,7 +3886,7 @@ kubectl delete -f pc-deployment.yaml
 
     - **Replace**：替换，取消当前正在运行的作业并使用新作业替换它。
 
-##### 使用
+#### 使用
 
 - 创建 `pc-cronjob.yaml`
 
@@ -3942,9 +3942,9 @@ kubectl delete -f pc-deployment.yaml
   kubectl delete cj pc-cronjob  -n dev
   ```
 
-#### StatefulSet
+### StatefulSet
 
-##### 概述
+#### 概述
 
 - 无状态应用(Deployment)
   - 认为 Pod 都是一样的
@@ -3963,7 +3963,7 @@ kubectl delete -f pc-deployment.yaml
   - 但由于 Pod IP 是变化的，所以必须要用 Pod 名称来识别，Pod 名称是 Pod 唯一性的标识，必须持久稳定有效，而通过无头服务，就可以给一个 Pod 一个唯一的名称
 - 一般 StatefulSet 可以用来部署 RabbitMQ/Zookeeper/Mysql/Eureka集群等
 
-##### 使用
+#### 使用
 
 - 创建 `pc-stateful.yaml`
 
@@ -4029,6 +4029,397 @@ kubectl delete -f pc-deployment.yaml
   ```shell
   kubectl delete -f pc-stateful.yaml
   ```
+
+## Service
+
+### 介绍
+
+- 在 K8S 中，Pod 是应用程序的载体，可以通过访问 Pod 的 IP 来访问应用程序，但由于 Pod 的 IP 地址不是固定的，所以需要使用 **Service**
+
+- 作用：将同一个服务的多个 Pod 进行聚合，并提供一个**统一的入口地址**，通过访问 Service 的入口地址就能访问后面的 Pod 服务
+
+   ![Service介绍.png](README.assets/1609904160160-74eebf02-ec02-416b-83b7-58a2b5392c3a.png)
+
+- 原理：**kube-proxy 服务进程**; 在每个 Node 节点上都运行了一个 kube-proxy 的服务进程，当我们需要创建 Service 的时候会通过 Api Server 向 etcd 写入创建的 Service 的信息,而 kube-proxy 会**基于监听**的机制发现这种 Service 的变化，然后将**最新的 Service 信息转换对应的访问规则**
+
+   ![Service原理.png](README.assets/1609904171516-d7d58ebc-785b-4e71-a370-6f6f163c713d.png)
+
+- kube-proxy 目前支持三种工作模式
+
+  - userspace 模式：
+
+    ![userspace模式.png](README.assets/1609904185572-943d0ef3-a7ec-44af-8710-83d6c06c3179.png)
+
+    - userspace 模式下，kube-proxy 会为每一个 Service 创建一个监听端口；发向 Cluster IP 的请求会被 **iptables 规则重定向到 kube-proxy 监听的端口上**; kube-proxy 根据 LB 算法(负载均衡算法)选择一个提供服务的 Pod 并和其建立连接，以便将请求转发到 Pod 上
+    - kube-proxy 会充当一个**四层负载均衡器**的角色，由于 kube-proxy 运行在 userspace 中，在进行转发处理的时候会**增加内核和用户空间之间的数据拷贝**，虽然比较稳定，但效率非常低下
+
+  - iptables 模式
+
+     ![iptables模式.png](README.assets/1609904200593-e3b0fe06-f0e9-4024-854b-5cb88551d1c5-16534899986221.png)
+
+    - kube-proxy **为 Service 对应的 Pod 创建对应的 iptables 规则**，直接将发向 Cluster IP 的请求重定向到一个 Pod 的 IP 上
+    - 该模式下 kube-proxy 不承担四层负载均衡角色，只**负责创建 iptables 规则**
+    - 该模式的优点在于较于 userspace 模式效率更高，但是**不能提供灵活的 LB 策略，当后端 pod 不可用时也无法进行重试**
+
+  - ipvs 模式
+
+      ![ipvs模式.png](README.assets/1609904216661-75919a0e-dfc0-4524-8171-4cb3a94a4e1b.png)
+
+     - 和 iptabeles 类似，kube-proxy 监控 Pod 的变化并创建相应的 ipvs 规则(ipvs 相对 iptables 转发效率更高)，持此之外，ipvs 支持更多的 LB 算法
+
+- 开启 ipvs(如果不开启，也可以使用，但会自动降级为 iptables)
+
+   ```shell
+   kubectl edit cm kube-proxy -n kube-system
+   ```
+
+    ![image-20220525225441534](README.assets/image-20220525225441534.png)
+
+   ```shell
+   kubectl delete pod -l k8s-app=kube-proxy -n kube-system
+   ```
+
+   ```shell
+   # 测试ipvs模块是否开启成功
+   ipvsadm -Ln
+   ```
+
+    ![image-20220525225529147](README.assets/image-20220525225529147.png)	
+
+### 类型
+
+- Service 资源清单
+
+  ```yaml
+  apiVersion: v1 # 版本
+  kind: Service # 类型
+  metadata: # 元数据
+    name: # 资源名称
+    namespace: # 命名空间
+    
+  spec:
+    selector: # 标签选择器，用于确定当前Service代理那些Pod
+      app: nginx
+    type: NodePort # Service的类型，指定Service的访问方式
+    clusterIP: # 虚拟服务的IP地址
+    sessionAffinity: # session亲和性，支持ClientIP、None两个选项，默认值为None
+    ports: # 端口信息
+      - port: 8080 # Service端口
+        protocol: TCP # 协议
+        targetPort: 8080 # Pod端口
+        nodePort: 80 # 主机端口
+  ```
+
+  spec.type的说明：
+
+  - ClusterIP：默认值，它是 kubernetes 系统自动分配的虚拟IP，只能在集群内部访问。
+
+  - NodePort：将 Service 通过指定的 Node 上的端口暴露给外部，通过此方法，就可以在集群外部访问服务。
+
+  - LoadBalancer：使用外接负载均衡器完成到服务的负载分发，注意此模式需要外部云环境的支持。
+
+  - ExternalName：把集群外部的服务引入集群内部，直接使用。
+
+  spec.sessionAffinity: (ClusterIP)让同一个 Client 尽量访问同一个 Pod
+
+### 使用
+
+#### 实现环境准备
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pc-deployment
+  namespace: dev
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx-pod
+  template:
+    metadata:
+      labels:
+        app: nginx-pod
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.17.1
+          ports:
+            - containerPort: 80
+```
+
+创建之后，修改其内部的文件
+
+```shell
+kubectl get pod -n dev -o wide
+```
+
+![image-20220525231033036](README.assets/image-20220525231033036.png)
+
+```shell
+kubectl exec -it pod名称 -c 容器名称 -n dev /bin/sh
+```
+
+```shell
+echo "10.244.2.65" > /usr/share/nginx/html/index.html
+```
+
+```shell
+curl 10.244.2.64
+```
+
+ ![image-20220525231512170](README.assets/image-20220525231512170.png)
+
+重复三次，为三台机器的 nginx/index.html 内容修改为其 ip 地址
+
+#### ClusterIP 类型的 Service
+
+##### 创建 Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-clusterip
+  namespace: dev
+spec:
+  selector: # 标签选择器
+    app: nginx-pod
+  clusterIP: 10.97.97.97 # service的IP地址，如果不写，默认会生成一个
+  type: ClusterIP # 指定 type 为  ClusterIP
+  ports:
+    - port: 80 # Service的端口
+      targetPort: 80 # Pod的端口
+```
+
+##### 查看 Service
+
+```shell
+kubectl get svc -n dev -o wide
+```
+
+![image-20220526094358023](README.assets/image-20220526094358023.png)
+
+```shell
+kubectl describe svc service-clusterip  -n dev
+```
+
+![image-20220526094458207](README.assets/image-20220526094458207.png)
+
+##### 查看 ipvs 的映射规则
+
+```shell
+ipvsadm -Ln
+```
+
+![image-20220526094742334](README.assets/image-20220526094742334.png)
+
+##### 访问
+
+```shell
+curl 10.108.75.193
+```
+
+ ![image-20220526100133844](README.assets/image-20220526100133844.png)
+
+##### Endpoint(不常用)
+
+- Endpoint 是 K8S 中的一个资源对象，存储在 etcd 中
+- 作用：记录一个 Service 对应的所有的 Pod 的访问地址(根据 service 配置文件中的 selector 描述产生的)
+- 一个 Service 由一组 Pod 组成，这些 Pod 通过 Endpoint 暴露出来的，**Endpoint 是实际服务的端点集合**(Service 和 Pod 之间的联系是通过 Endpoint 实现的)
+
+![Endpoint概述.png](README.assets/1609905301627-5ad470f0-7277-4fa1-9afa-1d23e8fcd453.png)
+
+- 查看 Endpoint
+
+  ```shell
+  kubectl get endpoints -n dev -o wide
+  ```
+
+   ![image-20220526100514656](README.assets/image-20220526100514656.png)
+
+##### 负载分发策略
+
+- 对 Service 的访问会转发到对应的后端 Pod 上去，目前 K8S 提供了两种负载分发策略
+
+  - 如果不定义，默认使用 kube-proxy 的策略(随机,轮询等)
+  - 基于**客户端的会话保持模式**(SessionAffinity),同一个客户端发起的所有请求都会转发到固定的一个 Pod 上
+
+- 修改分发策略
+
+  ```shell
+  ...
+  spec:
+    sessionAffinity: ClientIP # 修改分发策略为基于客户端地址的会话保持模式
+    ...
+  ```
+
+- 重建 SVC 后查看 ipvs
+
+  ```shell
+  ipvsadm -Ln
+  ```
+
+  ![image-20220526101009217](README.assets/image-20220526101009217.png)
+
+- 测试
+
+  ```shell
+  while true;do curl 10.103.231.151:80; sleep 2; done;
+  ```
+
+  ![image-20220526101143961](README.assets/image-20220526101143961.png)
+
+##### 删除 Service
+
+```shell
+kubectl delete -f svc-type-clusterip.yaml
+```
+
+#### HeadLiness 类型的 Service
+
+> TODO：主要用于 StatefulSet，看看以后能不能用上
+
+##### 概述
+
+在某些场景中，开发人员可能不想使用 Service 提供的负载均衡功能，而希望自己来控制负载均衡策略，针对这种情况，kubernetes 提供了 HeadLinesss Service，这类 Service 不会分配Cluster IP，如果想要访问Service，只能通过 Service 的域名进行查询。
+
+##### 创建 Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-headliness
+  namespace: dev
+spec:
+  selector:
+    app: nginx-pod
+  clusterIP: None # 将clusterIP设置为None，即可创建headliness Service
+  type: ClusterIP
+  ports:
+    - port: 80 # Service的端口
+      targetPort: 80 # Pod的端口
+```
+
+##### 查看 Service
+
+```shell
+kubectl get svc service-headliness -n dev -o wide
+```
+
+![image-20220526103039195](README.assets/image-20220526103039195.png)
+
+```shell
+kubectl describe svc service-headliness  -n dev
+```
+
+![image-20220526103121265](README.assets/image-20220526103121265.png)
+
+##### 查看域名解析情况
+
+- 进入到 Pod 中
+
+  ```shell
+  kubectl exec -it pod名 -n dev /bin/sh
+  ```
+
+- 查看域名
+
+  ```shell
+  cat /etc/resolv.conf
+  ```
+
+  ![image-20220526103425596](README.assets/image-20220526103425596.png)
+
+##### 通过 Service 的域名进行查询
+
+```shell
+dig @10.96.0.10 service资源名.命名空间.svc.cluster.local
+```
+
+```shell
+dig @10.96.0.10 service-headliness.dev.svc.cluster.local
+```
+
+![image-20220526103626985](README.assets/image-20220526103626985.png)
+
+
+
+#### NodePort 类型的 Service
+
+##### 概述
+
+- 可以将 Service 暴露给集群外部使用
+- 工作原理：将 Service 的端口映射到 Node 的一个端口上，通过访问 `NodeIp:NodePort` 就能访问对应的 Service 和 Pod
+
+![NodePort类型的Service之概述.png](README.assets/1609905553304-e36bfc3a-7164-4ef5-8e9f-e14839509818.png)
+
+##### 创建 Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-nodeport
+  namespace: dev
+spec:
+  selector:
+    app: nginx-pod
+  type: NodePort # Service类型为NodePort
+  ports:
+    - port: 80 # Service的端口
+      targetPort: 80 # Pod的端口
+      nodePort: 30002 # 指定绑定的node的端口（默认取值范围是30000~32767），如果不指定，会默认分配
+```
+
+##### 查看 Service
+
+```shell
+kubectl get svc service-nodeport -n dev -o wide
+```
+
+![image-20220526104726849](README.assets/image-20220526104726849.png)
+
+##### 访问
+
+访问集群任意一台 Node + NodePort 即可
+
+ ![image-20220526104950447](README.assets/image-20220526104950447.png)
+
+##### LoadBalancer 类型的 Service
+
+和 NodePort 相似，目的都是向外暴露一个端口，区别在于 LoadBalancer 会**在集群的外部在实现一个负载均衡**, 这个设备(外部 LB 设备)需要外部环境的支持(不在当前集群的Node)，当请求发送到这个设备上时，会被设备负载均衡到不同节点上
+
+ ![LoadBalancer类型的Service.png](README.assets/1609905593459-9981ec42-89ec-4f23-ad9e-3e63554fb2b0.png)
+
+#### ExternalName 类型的 Service
+
+##### 概述
+
+将外部服务引入到集群内部，这样集群内部可以**通过访问 Service 来访问外部的服务**
+
+ ![ExternalName类型的Service之概述.png](README.assets/1609905613110-91fc1ab8-0fd2-4dab-8cd4-33bf5a4ce4c2.png)
+
+##### 创建 Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-externalname
+  namespace: dev
+spec:
+  type: ExternalName # Service类型为ExternalName
+  externalName: www.baidu.com # 外部服务的域名(改成IP地址也可以)
+```
+
+##### 域名解析
+
+```shell
+dig @10.96.0.10 service-externalname.dev.svc.cluster.local
+```
 
 
 
