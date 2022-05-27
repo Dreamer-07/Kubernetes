@@ -4032,7 +4032,7 @@ kubectl delete -f pc-deployment.yaml
 
 ## Service
 
-### 介绍
+### Service 介绍
 
 - 在 K8S 中，Pod 是应用程序的载体，可以通过访问 Pod 的 IP 来访问应用程序，但由于 Pod 的 IP 地址不是固定的，所以需要使用 **Service**
 
@@ -4086,7 +4086,7 @@ kubectl delete -f pc-deployment.yaml
 
     ![image-20220525225529147](README.assets/image-20220525225529147.png)	
 
-### 类型
+### Service 类型
 
 - Service 资源清单
 
@@ -4122,7 +4122,7 @@ kubectl delete -f pc-deployment.yaml
 
   spec.sessionAffinity: (ClusterIP)让同一个 Client 尽量访问同一个 Pod
 
-### 使用
+### Service 使用
 
 #### 实现环境准备
 
@@ -4388,7 +4388,7 @@ kubectl get svc service-nodeport -n dev -o wide
 
  ![image-20220526104950447](README.assets/image-20220526104950447.png)
 
-##### LoadBalancer 类型的 Service
+#### LoadBalancer 类型的 Service
 
 和 NodePort 相似，目的都是向外暴露一个端口，区别在于 LoadBalancer 会**在集群的外部在实现一个负载均衡**, 这个设备(外部 LB 设备)需要外部环境的支持(不在当前集群的Node)，当请求发送到这个设备上时，会被设备负载均衡到不同节点上
 
@@ -4420,6 +4420,246 @@ spec:
 ```shell
 dig @10.96.0.10 service-externalname.dev.svc.cluster.local
 ```
+
+### Ingress 介绍
+
+- Service 对集群向外暴露的方式主要有两种：NodePort/LoadBelancer，但其存在一定的缺点
+  - NodePort：占用很多集群机器的端口(特别是服务集群变多时)
+  - LoadBalancer：每一个 Service 都需要一个 LB 设备
+- 针对上述情况，K8S 提供了 Ingress 资源对象，可以实现用一个 NodePort/LB 满足暴露多个 Service 的需求
+
+![Ingress介绍.png](README.assets/1609905648464-a3f21b67-099e-4c8f-9152-786b6bc3e46a.png)
+
+- 实际上，Ingress 相当于一个七层的负载均衡器，是 K8S 对反向代理的一个抽象，**工作原理类似于 Nginx**，可以理解为 Ingress 里建立了诸多**映射规则**，Ingress Controller 通过**监听这些配置规则并转换为 Nginx 的反向代理配置**，然后对外提供服务
+  - Ingress：K8S 中的一个对象资源，作用是定义**请求如何转发到 Service 的规则**
+  - Ingress Controller：具体**实现反向代理及负载均衡的程序**，对 Ingress 定义的规则进行解析，根据**配置的规则来实现请求转发**，实现的方式有很多种(Nginx/Haproxy等)
+- Ingress 工作原理(IC使用Nginx)
+  - 用户编写 Ingress 规则，指定 **Service 与域名的映射关系**
+  - Ingress Controller 动态感知 Ingress 服务规则的变化，然后生成一段**对应的 Nginx 反向代理配置**
+  - Ingress Controller 将生成的 Nginx 配置写入一个运行着的 Nginx 服务中，并动态更新
+  - 实际上工作的就是 Nginx，内部配置了用户定义的请求规则
+
+![Ingress工作原理.png](README.assets/1609905668517-a82f7096-bfa4-44a6-b5d6-fac18efb4111.png)
+
+### Ingress 使用
+
+#### 环境准备
+
+##### 搭建 Ingress 环境
+
+- 创建文件夹并进入
+
+  ```shell
+  mkdir ingress-controller
+  ```
+
+- 下载对应的 yaml 配置文件
+
+  ```shell
+  wget https://raw.githubusercontent.com/kubernetes/ingress-nginx/nginx-0.30.0/deploy/static/mandatory.yaml
+  wget https://raw.githubusercontent.com/kubernetes/ingress-nginx/nginx-0.30.0/deploy/static/provider/baremetal/service-nodeport.yaml
+  ```
+
+  通过执行上面两个文件即可创建 `lngress-nginx`
+
+- 查看 Pod,Service
+
+  ```shell
+  kubectl get svc,pods -n ingress-nginx
+  ```
+
+  ![image-20220526132344263](README.assets/image-20220526132344263.png)
+
+##### 准备 Service,Pod
+
+![Ingress使用准备环境之准备Service和Pod.png](README.assets/1609905816952-62872b94-d5a2-4ee1-81da-ee144817c151.png)
+
+创建 `tomcat-nginx.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: dev
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx-pod
+  template:
+    metadata:
+      labels:
+        app: nginx-pod
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.17.1
+        ports:
+        - containerPort: 80
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tomcat-deployment
+  namespace: dev
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tomcat-pod
+  template:
+    metadata:
+      labels:
+        app: tomcat-pod
+    spec:
+      containers:
+      - name: tomcat
+        image: tomcat:8.5-jre10-slim
+        ports:
+        - containerPort: 8080
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: dev
+spec:
+  selector:
+    app: nginx-pod
+  clusterIP: None
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-service
+  namespace: dev
+spec:
+  selector:
+    app: tomcat-pod
+  clusterIP: None
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+```
+
+#### http 代理
+
+- 创建 
+
+  ```yaml
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    name: ingress-http
+    namespace: dev
+  spec:
+    rules:
+    - host: nginx.prover.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: nginx-service
+            servicePort: 80
+    - host: tomcat.xudaxian.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: tomcat-service
+            servicePort: 8080
+  ```
+
+- 查看
+
+  ```shell
+  # 创建的 ingress 信息
+  kubectl get ing ingress-http -n dev
+  ```
+
+  ![image-20220527101826534](README.assets/image-20220527101826534.png)
+
+  ```shell
+  # 创建的 ingress 信息详情
+  kubectl describe ing ingress-http -n dev
+  ```
+
+  ![image-20220526140606779](README.assets/image-20220526140606779.png)
+
+  ```shell
+  # ingress 对外暴露的 http(s) 端口
+  kubectl get svc -n ingress-nginx
+  ```
+
+  ![image-20220526140732531](README.assets/image-20220526140732531.png)
+
+- 修改 window 的 hosts 文件添加映射信息
+
+  ```sys
+  192.168.102.100 nginx.prover.com
+  192.168.102.100 tomcat.prover.com
+  ```
+
+- 访问即可 域名+端口即可
+
+#### https 代理
+
+- 生成证书
+
+  ```shell
+  openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/C=CN/ST=BJ/L=BJ/O=nginx/CN=prover.com"
+  ```
+
+- 创建密钥
+
+  ```shell
+  kubectl create secret tls tls-secret --key tls.key --cert tls.crt
+  ```
+
+- 创建 `ingress-https.yaml`
+
+  ```yaml
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    name: ingress-https
+    namespace: dev
+  spec:
+    tls:
+      - hosts:
+        - nginx.xudaxian.com
+        - tomcat.xudaxian.com
+        secretName: tls-secret # 指定秘钥
+    rules:
+    - host: nginx.prover.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: nginx-service
+            servicePort: 80
+    - host: tomcat.prover.com
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: tomcat-service
+            servicePort: 8080
+  ```
+
+- 执行后即可访问 => `https://域名:https端口`
 
 
 
