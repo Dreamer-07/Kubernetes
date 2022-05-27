@@ -1,6 +1,12 @@
 # Kubernetes 
 
 > 学习目标：对于开发来说会使用 K8S 部署项目即可，对于运维，这篇文章并不适合
+>
+> 参考文档：https://www.yuque.com/fairy-era/yg511q/xyqxge
+>
+> 学习视频：https://www.bilibili.com/video/BV1Qv41167ck
+
+
 
 ## 介绍
 
@@ -4660,6 +4666,761 @@ spec:
   ```
 
 - 执行后即可访问 => `https://域名:https端口`
+
+## 数据存储
+
+### 概述
+
+- 默认情况下，随着让容器被销毁，保存在容器中的数据也会被清除，为了持久化保存容器中的数据，K8S 中引入了 **Volume**
+- Volume 定义在 Pod 上，能被 Pod 中的多个容器访问(容器的共享目录)，具体原理就是 Pod 中使用了该 Volume 的容器会将其挂载到(容器)内部具体某个文件夹上
+- K8S 可以通过 Volume 实现同一个 Pod 中不同容器之间的数据共享以及数据化存储
+- Volume 的生命周期不和 Pod 中的单个容器的生命有关，当容器终止/重启是，Volume 中的数据也不会丢失
+- 分类：
+  - 简单存储：EmptyDir/HostPath/NFS
+  - 高级存储：PV/PVC
+  - 配置存储：ConfigMap/Secret
+
+### EmptyDir
+
+#### 概述
+
+- 是最基础的 Volume 类型，一个 EmptyDir 就是 Host 上的一个根目录
+- EmptyeDir 是 Pod 被分配到 Node 时创建的，初始内容为空，默认情况下，K8S 会自动分配，当 Pod 销毁时，EmptyDir 中的数据也会被永久删除
+- 用途：
+  - 临时空间：用于某些应用程序运行时所需的临时目录，且无须永久保留。
+  - 一个容器需要从另一个容器中获取数据(多容器共享目录)
+
+![EmptyDir概述.png](README.assets/1610067269031-747b1f35-dd83-4397-b841-7ebb32b4b5d7.png)
+
+#### 使用
+
+- 创建 `volume-emptydir.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: volume-emptydir
+    namespace: dev
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 80
+        volumeMounts: # 将logs-volume挂载到nginx容器中对应的目录，该目录为/var/log/nginx
+          - name: logs-volume
+            mountPath: /var/log/nginx
+      - name: busybox
+        image: busybox:1.30
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh","-c","tail -f /logs/access.log"] # 初始命令，动态读取指定文件
+        volumeMounts: # 将logs-volume挂载到busybox容器中的对应目录，该目录为/logs
+          - name: logs-volume
+            mountPath: /logs
+    volumes: # 声明volume，name为logs-volume，类型为emptyDir
+      - name: logs-volume
+        emptyDir: {}
+  ```
+
+- 查看 pod 详情
+
+  ```shell
+  kubectl describe pod volume-emptydir  -n dev
+  ```
+
+  ![image-20220527124125027](README.assets/image-20220527124125027.png)
+
+- 监听 pod 中 busybox 容器的日志输出
+
+  ```shell
+  kubectl logs -f pod名称 -c 容器名 [-n 命名空间]
+  ```
+
+  ```shell
+  kubectl logs -f volume-emptydir -n dev -c busybox
+  ```
+
+- 打开一个新窗口向 Nginx 容器发送请求
+
+  ![image-20220527124557646](README.assets/image-20220527124557646.png)
+
+- 查看原窗口的输出
+
+  ![image-20220527124612499](README.assets/image-20220527124612499.png)
+
+### HostPath
+
+#### 概述
+
+- EmptyDir 中的数据并不会被**持久化**，而是随着 Pod 的结束而销毁，如果想数据持久化到主机上，可以使用 **HostPath**
+- 原理：将 Host 主机中的一个实际目录挂载到 Pod 中，以供容器使用
+
+![HostPath概述.png](README.assets/1610067328325-2d2b96b2-026f-48b5-a204-25333fba6984.png)
+
+#### 使用
+
+- `volume-hostpath.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: volume-hostpath
+    namespace: dev
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 80
+        volumeMounts: # 将logs-volume挂载到nginx容器中对应的目录，该目录为/var/log/nginx
+          - name: logs-volume
+            mountPath: /var/log/nginx
+      - name: busybox
+        image: busybox:1.30
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh","-c","tail -f /logs/access.log"] # 初始命令，动态读取指定文件
+        volumeMounts: # 将logs-volume挂载到busybox容器中的对应目录，该目录为/logs
+          - name: logs-volume
+            mountPath: /logs
+    volumes: # 声明volume，name为logs-volume，类型为hostPath
+      - name: logs-volume
+        hostPath:
+          path: /root/logs
+          type: DirectoryOrCreate # 目录存在就使用，不存在就先创建再使用
+  ```
+
+  volumes.hostPath.type:
+
+  - DirectoryOrCreate：目录存在就使用，不存在就先创建后使用
+  - Directory：目录必须存在
+  - FileOrCreate：文件存在就使用，不存在就先创建后使用
+  - File：文件必须存在
+  - Socket：unix套接字必须存在
+  - CharDevice：字符设备必须存在
+  - BlockDevice：块设备必须存在
+
+- 查看 pod 所在的 node
+
+  ```shell
+  kubectl get pod -n dev -o wide
+  ```
+
+  ![image-20220527132019803](README.assets/image-20220527132019803.png)
+
+- 查看对应 node 节点中映射的 hostPath 目录
+
+  ![image-20220527132107827](README.assets/image-20220527132107827.png)
+
+- 发送请求到 Nginx 中并查看日志文件输出
+
+  ```shell
+  curl 10.244.1.86:80
+  ```
+
+### NFS
+
+#### 概述
+
+- HostPath 虽然可以解决持久化问题，但如果 Node 故障，将 Pod 转移到其他 Node 上，那么原数据便会丢失，这时可以准备一个单独的网格存储系统 => NFS/CIFS/等
+- NFS：网格存储系统，通过搭建 NFS 服务器，将 Pod 中的存储挂载到 NFS 上
+
+![NFS概述.png](README.assets/1610067394717-c50b7ae8-41fd-4f6d-bd90-f9c27d0183a5.png)
+
+#### 搭建 NFS 服务器
+
+> 这里为方便就在 master 上搭建，一般企业中可能需要单独搭建 NFS 服务集群
+
+- 在 Master 节点上安装
+
+  ```shell
+  yum install -y nfs-utils rpcbind
+  ```
+
+- 准备一个共享目录
+
+  ```shell
+  mkdir -pv /root/data/nfs
+  ```
+
+- 将共享目录的读写权限暴露给 `192.168.102.0/24` 网段中的所有主机
+
+  ```shell
+  vim /etc/exports
+  ```
+
+  ```
+  /root/data/nfs 192.168.102.0/24(rw,no_root_squash)
+  ```
+
+- 修改权限
+
+  ```shell
+  chmod 777 -R /root/data/nfs
+  ```
+
+- 加载配置
+
+  ```shell
+  exportfs -r
+  ```
+
+- 启动 nfs 服务
+
+  ```shell
+  systemctl start rpcbind
+  systemctl enable rpcbind
+  systemctl start nfs
+  systemctl enable nfs
+  ```
+
+- 测试是否挂载成功
+
+  ```shell
+  showmount -e 192.168.102.100
+  ```
+
+   ![image-20220527134210997](README.assets/image-20220527134210997.png)
+
+- 在 Node 节点上安装 NFS 工具，目的是为了可以驱动 NFS 设备
+
+  ```shell
+  # 在Node节点上安装NFS服务，不需要启动
+  yum -y install nfs-utils
+  ```
+
+- 测试是否挂载成功
+
+  ```shell
+  showmount -e 192.168.102.100
+  ```
+
+   ![image-20220527134227543](README.assets/image-20220527134227543.png)
+
+#### 使用
+
+- `volume-nfs.yaml`
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: volume-nfs
+    namespace: dev
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.17.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 80
+        volumeMounts: # 将logs-volume挂载到nginx容器中对应的目录，该目录为/var/log/nginx
+          - name: logs-volume
+            mountPath: /var/log/nginx
+      - name: busybox
+        image: busybox:1.30
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh","-c","tail -f /logs/access.log"] # 初始命令，动态读取指定文件
+        volumeMounts: # 将logs-volume挂载到busybox容器中的对应目录，该目录为/logs
+          - name: logs-volume
+            mountPath: /logs
+    volumes: # 声明volume
+      - name: logs-volume
+        nfs:
+          server: 192.168.102.100 # NFS服务器地址
+          path: /root/data/nfs # 共享文件路径
+  ```
+
+- 监听 nfs 共享文件的日志输出
+
+  ```shell
+  tail -f /root/data/nfs/access.log
+  ```
+
+- 向 nginx 发送请求并查看日志输出
+
+  ```shell
+  curl 10.244.1.87:80
+  ```
+
+  ![image-20220527134942771](README.assets/image-20220527134942771.png)
+
+### 高级存储(PV/PVC)
+
+#### 简介
+
+- 对于直接使用网格系统，要求用户必须掌握该网格系统在 K8S 中的配置，而网格系统的种类又多的一p，所以并不适合直接使用
+- K8S 中引入了 PV 和 PVC 两种资源对象，让用户可以忽略底层存储实现的细节，方便使用
+  - PV：持久化卷，是**底层共享存储的一种抽象**，一般情况下 PV 由**K8S管理员**进行创建和配置，和具体的共享存储技术有关，并通过插件完成与共享存储系统的对接
+  - PVC：持久化卷声明：是用于对于**存储需求的一种声明**，及 PVC 其实是用户向 K8S 发起的资源需求申请
+
+![PV和PVC概述.png](README.assets/1610067446643-68eac8d4-685f-46d2-9ede-1d240f07f187.png)
+
+- 存储系统(NFS/CIFS等)：存储工程师维护
+- PV：K8S 管理员维护
+- PVC：K8S 用户维护
+
+#### PV
+
+##### 资源清单
+
+> pv 是**存储资源的抽象**
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv2
+spec:
+  nfs: # 存储类型，和底层正则的存储对应
+    path:
+    server:
+  capacity: # 存储能力，目前只支持存储空间的设置
+    storage: 2Gi
+  accessModes: # 访问模式
+    -
+  storageClassName: # 存储类别
+  persistentVolumeReclaimPolicy: # 回收策略
+```
+
+存储类型：底层实际存储的类型，K8S 中支持多种，每种存储类型的配置有所不同
+
+存储能力：1.18中只支持对存储空间的设置
+
+访问模式：用来描述用户对存储资源的访问权限
+
+- ReadWriteOnce(RWO): 读写, RWO 访问模式也允许运行在同一节点上的多个 Pod 访问卷。
+- ReadOnlyMany(ROM): 只读，可以被多个节点挂载
+- ReadWriteMany(RWM): 读写，可以被多个节点挂载
+
+回收策略：当 PV 不在被使用后，对其的处理方式
+
+- Retain：保留，需要管理员手动清理
+- Recyle：回收，清除 PV 中的所有数据，相当于 `rm -rf`
+- Delete：删除，由与 PV 连接的底层存储完成 volume 的删除操作
+
+存储类别：PV 可以通过 storageClassNmae 参数指定一个存储类别
+
+- 具有特定类型的 PV 只能和请求了该类别的 PVC 进行绑定
+- 未设定类别的 PV 只能和不请求任何类别的 PVC 进行绑定
+
+状态：一个 PV 的生命后期，可能会处于4中不同的阶段
+
+- Avaliable：可用，即还未被任何 PVC 绑定
+- Bound：已绑定，表示 PV 已经被 PVC 绑定
+- Released：已释放，表示 PVC 被删除，但是资源还未被释放
+- Filed：失败，表示该 PV 自动**回收**(Recyle)失败
+
+##### NFS
+
+> 只在 master 节点上运行
+
+- 创建目录
+
+  ```shell
+  mkdir -pv /root/data/{pv1,pv2,pv3}
+  ```
+
+- 授权
+
+  ```shell
+  chmod 777 -R /root/data
+  ```
+
+- 修改 `/etc/exports` 文件
+
+  ```shell
+  vim /etc/exports
+  ```
+
+  ```shell
+  /root/data/pv1     192.168.102.0/24(rw,no_root_squash) 
+  /root/data/pv2     192.168.102.0/24(rw,no_root_squash) 
+  /root/data/pv3     192.168.102.0/24(rw,no_root_squash)
+  ```
+
+- 重启 NFS
+
+  ```shell
+  systemctl restart nfs
+  ```
+
+##### 使用
+
+创建 pv
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv1
+spec:
+  nfs: # 存储类型吗，和底层正则的存储对应
+    path: /root/data/pv1
+    server: 192.168.102.100
+  capacity: # 存储能力，目前只支持存储空间的设置
+    storage: 1Gi
+  accessModes: # 访问模式
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain # 回收策略
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv2
+spec:
+  nfs: # 存储类型吗，和底层正则的存储对应
+    path: /root/data/pv2
+    server: 192.168.102.100
+  capacity: # 存储能力，目前只支持存储空间的设置
+    storage: 2Gi
+  accessModes: # 访问模式
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain # 回收策略
+  
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv3
+spec:
+  nfs: # 存储类型吗，和底层正则的存储对应
+    path: /root/data/pv3
+    server: 192.168.102.100
+  capacity: # 存储能力，目前只支持存储空间的设置
+    storage: 3Gi
+  accessModes: # 访问模式
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain # 回收策略
+```
+
+查看 pv
+
+```shell
+kubectl get pv -o wide
+```
+
+![image-20220527152549338](README.assets/image-20220527152549338.png)
+
+
+
+#### PVC
+
+##### 资源清单文件
+
+PVC 是**资源的申请**，用来声明对资源空间，访问模式，存储类别需求信息
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc
+  namespace: dev
+spec:
+  accessModes: # 访客模式
+    - 
+  selector: # 采用标签对PV选择
+  storageClassName: # 存储类别
+  resources: # 请求空间
+    requests:
+      storage: 5Gi
+```
+
+accessModes(访问模式)：用于描述用户应用对存储资源的访问权限
+
+selector(选择条件)：通过 Label Selector 的设置，可使 PVC 对于系统中已经存在的 PV 进行预览
+
+storageClassName：PVC 在定义时可以设置需要的后端存储类别，是由设置了该 class 的 pv 才能被系统选中
+
+resources：描述对存储资源的请求
+
+##### 使用
+
+创建
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc1
+  namespace: dev
+spec:
+  accessModes: # 访客模式
+    - ReadWriteMany
+  resources: # 请求空间
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc2
+  namespace: dev
+spec:
+  accessModes: # 访客模式
+    - ReadWriteMany
+  resources: # 请求空间
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc3
+  namespace: dev
+spec:
+  accessModes: # 访客模式
+    - ReadWriteMany
+  resources: # 请求空间
+    requests:
+      storage: 5Gi
+```
+
+查看 pvc 信息
+
+```shell
+kubectl get pvc -n dev -o wide
+```
+
+![image-20220527153423460](README.assets/image-20220527153423460.png)
+
+查看 pv
+
+```shell
+kubectl get pv
+```
+
+![image-20220527153511102](README.assets/image-20220527153511102.png)
+
+
+
+##### 创建 Pod 使用 PVC
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod1
+  namespace: dev
+spec:
+  containers:
+  - name: busybox
+    image: busybox:1.30
+    command: ["/bin/sh","-c","while true;do echo pod1 >> /root/out.txt; sleep 10; done;"]
+    volumeMounts:
+    - name: volume
+      mountPath: /root/
+  volumes:
+    - name: volume
+      persistentVolumeClaim:
+        claimName: pvc1  #使用的 pvc 名称
+        readOnly: false
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod2
+  namespace: dev
+spec:
+  containers:
+    - name: busybox
+      image: busybox:1.30
+      command: ["/bin/sh","-c","while true;do echo pod1 >> /root/out.txt; sleep 10; done;"]
+      volumeMounts:
+        - name: volume
+          mountPath: /root/
+  volumes:
+    - name: volume
+      persistentVolumeClaim:
+        claimName: pvc2
+        readOnly: false
+```
+
+查看对应的 nfs 共享目录文件夹
+
+ ![image-20220527155330639](README.assets/image-20220527155330639.png)
+
+### 配置存储(ConfigMap/Secret)
+
+> TODO: 有待完善
+
+#### ConfigMap 基本使用
+
+##### 概述
+
+主要用来存储配置文件
+
+##### 资源清单文件
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configMap
+  namespace: dev
+data: # <map[string]string>
+  key:
+    value1
+    value2
+```
+
+##### 使用
+
+- 创建 ConfigMap
+
+  ```yaml
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: configmap
+    namespace: dev
+  data: 
+    info:
+      username:admin
+      password:byqtxdy
+  ```
+
+- 创建使用 ConfigMap 的 Pod
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-configmap
+    namespace: dev
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.17.1
+        volumeMounts:
+          - mountPath: /configmap/config  # 将 configMap 的配置挂载到指定目录下
+            name: config
+    volumes:
+      - name: config
+        configMap:
+          name: configmap
+  ```
+
+- 创建 cm 详情
+
+  ```shell
+  kubectl describe cm configmap  -n dev
+  ```
+
+  ![image-20220527165423899](README.assets/image-20220527165423899.png)
+
+- 进入到容器内(pod只有一个容器可以不用 `-c` 指定)
+
+  ```shell
+  kubectl exec -it pod-configmap -n dev /bin/sh
+  ```
+
+  ![image-20220527161323147](README.assets/image-20220527161323147.png)
+
+  ConfigMap中的key映射为一个文件，value映射为文件中的内容。如果更新了ConfigMap中的内容，容器中的值也会动态更新。
+
+#### Secret 基本使用
+
+##### 概述
+
+和 ConfigMap 相似，主要用来存储敏感信息(密码/密钥/证书等)
+
+##### 使用
+
+- 准备数据 - 对数据进行 base64 编码
+
+  ```shell
+  echo -n "admin" | base64
+  echo -n "byqtxdy" | base64
+  ```
+
+- 创建 Secret
+
+  ```yaml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: secret
+    namespace: dev
+  type: Opaque
+  data:
+    username: YWRtaW4=
+    password: YnlxdHhkeQ==
+  ```
+
+  也可以将数据编码的工作交给 K8S
+
+  ```yaml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: secret
+    namespace: dev
+  type: Opaque
+  stringData:
+    username: admin
+    password: bytxdy
+  ```
+
+- 查看 secret 详情
+
+  ```shell
+  kubectl describe secrets secret -n dev
+  ```
+
+   ![image-20220527164947312](README.assets/image-20220527164947312.png)
+
+- 创建 Pod 使用 Secret 数据
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: pod-secret
+    namespace: dev
+  spec:
+    containers:
+      - name: nginx
+        image: nginx:1.17.1
+        volumeMounts:
+          - mountPath: /secret/config
+            name: config
+    volumes:
+      - name: config
+        secret:
+          secretName: secret
+  ```
+
+- 查看 secret 详情
+
+  ```shell
+  kubectl describe secret secret -n dev
+  ```
+
+   ![image-20220527165530179](README.assets/image-20220527165530179.png)
+
+- 进入 pod 查看密钥信息
+
+  ```shell
+  kubectl exec -it pod-secret  -n dev /bin/sh
+  ```
+
+  ![image-20220527165719597](README.assets/image-20220527165719597.png)
+
+##### 
+
+
+
+
+
+
 
 
 
