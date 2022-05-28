@@ -5739,7 +5739,57 @@ AdmissionControl: 准入控制，用于补充授权机制以实现更加精细�
 
 ## K8S DashBoard
 
+### 概述
 
+K8S 提供了一个基于 web 的用户界面，用户可以使用其来部署容器化应用，监控应用的状态，创建管理资源等操作
+
+### 部署
+
+1. 下载 [yaml](https://lark-assets-prod-aliyun.oss-cn-hangzhou.aliyuncs.com/yuque/0/2021/yaml/513185/1610074789462-62fcedfc-3d50-42f8-b0dc-1a0ad889de63.yaml?OSSAccessKeyId=LTAI4GGhPJmQ4HWCmhDAn4F5&Expires=1653730904&Signature=ktWez%2FQo9mf2ahbyxVckFT8tmW4%3D&response-content-disposition=attachment%3Bfilename*%3DUTF-8%27%27recommended.yaml)
+
+2. 修改 yaml 文件中的 Service 类型
+
+   ![image-20220528171415598](README.assets/image-20220528171415598.png)
+
+3. 执行后查看资源
+
+   ```shell
+   kubectl get pod,svc -n kubernetes-dashboard
+   ```
+
+   ![image-20220528171622083](README.assets/image-20220528171622083.png)
+
+4. 创建 Dashboard 的账户
+
+   ```shell
+   kubectl create serviceaccount dashboard-admin -n kubernetes-dashboard
+   ```
+
+5. 授权
+
+   ```shell
+   kubectl create clusterrolebinding dashboard-admin-rb --clusterrole=cluster-admin --serviceaccount=kubernetes-dashboard:dashboard-admin
+   ```
+
+6. 获取账号的 token
+
+   ```shell
+   kubectl get secrets -n kubernetes-dashboard | grep dashboard-admin
+   ```
+
+   ![image-20220528171856003](README.assets/image-20220528171856003.png)
+
+   ```shell
+   kubectl describe secrets dashboard-admin-token-4vgj6  -n kubernetes-dashboard
+   ```
+
+   ![image-20220528171915113](README.assets/image-20220528171915113.png)
+
+7. 通过游览器访问 DashBoard 的 UI => `https://NodeIp:30000`，把 token 复制到其中即可登录
+
+   ![image-20220528172935715](README.assets/image-20220528172935715.png)
+
+8. 
 
 ## 预警监控平台
 
