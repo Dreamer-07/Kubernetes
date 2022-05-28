@@ -5429,6 +5429,344 @@ data: # <map[string]string>
 
 这里学习 helm.v3 版本，上图是 v2/v3 的架构图
 
+### 部署
+
+- 下载 [Helm](https://lark-assets-prod-aliyun.oss-cn-hangzhou.aliyuncs.com/yuque/0/2021/gz/513185/1610375141403-a6ee0241-1106-4977-8734-feddd6897bec.gz?OSSAccessKeyId=LTAI4GGhPJmQ4HWCmhDAn4F5&Expires=1653652484&Signature=crXD85lDJlGW3cqDL0R1guHZm3g%3D&response-content-disposition=attachment%3Bfilename*%3DUTF-8%27%27helm-v3.2.1-linux-amd64.tar.gz)
+
+- 解压后会得到一个 `linux-amd64` 文件夹
+
+  ![image-20220528174015241](README.assets/image-20220528174015241.png)
+
+  将其中的 helm文件夹 cpoy到 `/usr/bin` 下
+
+- 添加仓库
+
+  ```shell
+  helm repo add 仓库名 仓库地址
+  ```
+
+  ```shell
+  helm repo add stable http://mirror.azure.cn/kubernetes/charts
+  ```
+
+- 更新仓库
+
+  ```shell
+  helm repo update
+  ```
+
+- 查看仓库
+
+  ```shell
+  helm repo list
+  ```
+
+  tips: 删除仓库
+
+  ```shell
+  helm repo remove 仓库名
+  ```
+
+- helm 基本命令
+
+  | 命令       | 描述                                                         |
+  | ---------- | ------------------------------------------------------------ |
+  | create     | 创建一个chart并指定名字                                      |
+  | dependency | 管理chart依赖                                                |
+  | get        | 下载一个release。可用的子命令：all、hooks、manifest、notes、values。 |
+  | history    | 获取release历史。                                            |
+  | install    | 安装一个chart。                                              |
+  | list       | 列出release。                                                |
+  | package    | 将chart目录打包到chart存档文件中。                           |
+  | pull       | 从远程仓库中下载chart并解压到本地。比如：helm install stable/mysql --untar。 |
+  | repo       | 添加、列出、移除、更新和索引chart仓库。可用的子命令：add、index、list、remove、update。 |
+  | rollback   | 从之前的版本回退。                                           |
+  | search     | 根据关键字搜索chart。可用的子命令：all、chart、readme、values。 |
+  | show       | 查看chart的详细信息。可用的子命令：all、chart、readme、values。 |
+  | status     | 显示已命名版本的状态。                                       |
+  | template   | 本地呈现模板。                                               |
+  | uninstall  | 卸载一个release。                                            |
+  | upgrade    | 更新一个release。                                            |
+  | version    | 查看Helm客户端版本。                                         |
+
+### 基本使用
+
+#### 使用 chart 部署一个应用
+
+1. 搜索 chart
+
+   ```shell
+   helm search repo chart名称
+   ```
+
+   ```shell
+   helm search repo weave
+   ```
+
+2. 查看 chart
+
+   ```shell
+   helm show chart 仓库名/chart名称
+   ```
+
+   ```shell
+   helm show chart stable/mysql
+   ```
+
+   ![image-20220528175324839](README.assets/image-20220528175324839.png)
+
+3. 安装 chart，形成 release
+
+   ```shell
+   helm install 安装之后的名称 仓库名/chart的名称(即搜索之后的应用名称)
+   ```
+
+   ```shell
+   helm install ui stable/weave-scope
+   ```
+
+   安装之后相关的资源(pod,svc,deploy)就会自动启动
+
+4. 查看 release 列表
+
+   ```shell
+   helm list
+   ```
+
+   ![image-20220528175521022](README.assets/image-20220528175521022.png)
+
+5. 查看具体 release 状态
+
+   ```shell
+   helm status 安装之后的名称
+   ```
+
+   ![image-20220528175552850](README.assets/image-20220528175552850.png)
+
+6. 修改 release-ui 的 svc
+
+   ```shell
+   kubectl get svc
+   ```
+
+   ![image-20220528175806272](README.assets/image-20220528175806272.png)
+
+   ```shell
+   kubectl edit svc ui-weave-scope
+   ```
+
+   ![image-20220528175905304](README.assets/image-20220528175905304.png)
+
+#### 安装时自定义 chart 配置
+
+##### 概述
+
+- 并不是所有 repo 中的 chart 按照默认配置就可以运行成功的，可能会需要一些环境依赖，例如：PV
+- 有两种方式可以事先在安装过程中传递配置参数
+  - `--values/-r`：指定带有覆盖的 YAML 文件，可以多次指定，最右边的文件优先
+  - `--set`: (优先级更高)在命令行上指定代替
+
+##### --values 使用(不推荐)
+
+- 先获取 chart 对应的 yaml
+
+  ```yaml
+  helo show values stable/mysql > config.yaml
+  ```
+
+- 修改其中的部分值
+
+  ![image-20220528181443702](README.assets/image-20220528181443702.png)
+
+- 使用其代替默认的配置文件安装 chart
+
+  ```shell
+  helm install -f config.yaml self-mysql  stable/mysql
+  ```
+
+##### 命令行代替变量(推荐)
+
+```shell
+helm install db --set persistence.storageClass="managed-nfs-storage" stable/mysql
+```
+
+#### 构建一个 Helm Chart
+
+- 创建一个 chart
+
+  ```shell
+  helm create chart名称
+  ```
+
+   ![image-20220528181808477](README.assets/image-20220528181808477.png)
+
+- 查看创建的 chart 中的文件
+
+  ```
+  ├── charts
+  ├── Chart.yaml 				描述 chart 的基本信息(名字,描述信息,版本等)
+  ├── templates 				存放资源 yaml 的目录
+  │ ├── deployment.yaml
+  │ ├── _helpers.tpl  		存放模板助手的地方，可以在整个 chart 中重复使用
+  │ ├── hpa.yaml
+  │ ├── ingress.yaml
+  │ ├── NOTES.txt				介绍 Chart 的帮助信息(helm install 后展示给用户)
+  │ ├── serviceaccount.yaml
+  │ ├── service.yaml
+  │ └── tests
+  │     └── test-connection.yaml
+  └── values.yaml				存储 templates 目录中模板文件中需要使用的变量值
+  ```
+
+- 编辑 `values.yaml` 内容，定义模板文件中使用的变量
+
+  ```yaml
+  replicas: 3
+  image: nginx 
+  tag: 1.17 
+  serviceport: 80 
+  targetport: 80 
+  label: nginx
+  ```
+
+- 删除 `templates.yaml` 下的所有文件
+
+- 编辑 `deployment.yaml`
+
+  ```shell
+  vim deployment.yaml
+  ```
+
+  通过 `{{ .Release.变量名 }}` 可以访问 **values.yaml** 中的变量 
+
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    labels:
+      app: {{ .Values.label }} 
+    name: {{ .Release.Name }}
+  spec:
+    replicas: {{ .Values.replicas }} 
+    selector:
+      matchLabels:
+        app: {{ .Values.label }} 
+    strategy: {}
+    template:
+      metadata:
+        labels:
+          app: {{ .Values.label }} 
+      spec:
+        containers:
+        - image: {{ .Values.image }}:{{ .Values.tag }} 
+          name: {{ .Values.image }}
+  ```
+
+- 编辑 `service.yaml`
+
+  ```yaml
+  apiVersion:   v1
+  kind: Service
+  metadata:
+    labels:
+      app: {{ .Values.label }} 
+    name:  {{ .Release.Name }}
+  spec: 
+    ports:
+      -  port: {{ .Values.serviceport }} 
+         protocol: TCP
+         targetPort: {{ .Values.targetport }} 
+    selector:
+      app: {{ .Values.label }} 
+    type: NodePort
+  ```
+
+- 回到 chart 的上一层目录，安装 release
+
+  ```shell
+  helm install guli guli/
+  ```
+
+- 查看
+
+  ```shell
+  kubectl get pod,svc
+  ```
+
+  ![image-20220528184935844](README.assets/image-20220528184935844.png)
+
+#### 调试
+
+在 `helm install` 可以使用 `--dry-run --debug` 调试参数，验证模板的正确性，helm 会输出对应的 values 和渲染的资源清单，并不会真正部署一个 release
+
+![image-20220528185238304](README.assets/image-20220528185238304.png)
+
+#### 内置对象
+
+| 内置对象          | 描述                             |
+| ----------------- | -------------------------------- |
+| Release.Name      | release的名称                    |
+| Release.Namespace | release的命名空间                |
+| Release.Service   | release的服务的名称              |
+| Release.Revision  | release的修订版本号，从1开始累加 |
+
+#### Values
+
+- Values 对象是为了给 Chart 模板提供值，对象属性主要来源：
+  - chart 包中的 values.yaml
+  - 父 chart 包中的 values.yaml
+  - 通过 `helm install` 或 `helm upgrade` 的 `-f`或`values` 参数传入的自定义 yaml 文件
+  - 通过 `--set` 参数传入的值
+- Chart的 values.yaml 提供的值可以被用户提供的 values 文件覆盖，而该文件同样可以被 `--set` 参数所覆盖，换言之，`--set`参数的优先级高。
+
+#### 升级，回滚，删除
+
+##### 升级
+
+使用 `helm upgrade`
+
+通过 `--set`
+
+```shell
+helm upgrade --set tag=1.17.2 guli guli
+```
+
+通过 `-f`(修改对应的配置文件)
+
+```shell
+helm upgrade -f values.yaml guli guli
+```
+
+##### 回滚
+
+查看 release 版本信息
+
+```shell
+helm history releaseName
+```
+
+![image-20220528204324385](README.assets/image-20220528204324385.png)
+
+版本回退
+
+```shell
+helm rollback guli 1
+```
+
+##### 查看历史版本配置信息
+
+```shell
+helm get all --revision 1 guli
+```
+
+##### 卸载发行版本
+
+```shell
+helm uninstall guli
+```
+
+
+
 ## 安全认证
 
 ### 访问控制概述
